@@ -1,4 +1,4 @@
-# 주기적으로 수강생 repo 들을 스캔해, 게이트를 통과한 repo 에 한해
+# 주기적으로 프로젝트 repo 들을 스캔해, 게이트를 통과한 repo 에 한해
 # Claude 리뷰를 돌리고 결과를 reports/ 에 커밋한다.
 #
 # 참고: 스펙상 anthropics/claude-code-action@beta 호출이 명시돼 있었지만,
@@ -156,6 +156,16 @@ jobs:
           fi
 
       # ---------------------------------------------------------------------
+      # Python deps: validate-report.py 와 run-claude-review.sh 의 backlog
+      # 추출이 PyYAML 에 의존한다. ubuntu-latest 에 대개 설치돼 있지만
+      # runner 이미지 변경 대비해 명시적으로 보장.
+      # ---------------------------------------------------------------------
+      - name: Ensure Python deps
+        if: steps.gate.outputs.should_run == 'true'
+        run: |
+          python3 -c "import yaml" 2>/dev/null || pip3 install --quiet pyyaml
+
+      # ---------------------------------------------------------------------
       # 프롬프트 생성: clone + diff 추출 + 템플릿 치환.
       # ---------------------------------------------------------------------
       - name: Build prompt
@@ -211,7 +221,9 @@ jobs:
           mkdir -p "$OUT_DIR"
 
           TMP=$(mktemp)
-          if claude -p --output-format text < "$PROMPT_FILE" > "$TMP"; then
+          # --model claude-opus-4-7: 리뷰 품질 우선 (Sonnet 대비 Max 쿼터 소모 크지만
+          # doc scoring / progress estimation 등 판단 품질 차이가 실사용에서 체감됨).
+          if claude -p --output-format text --model claude-opus-4-7 < "$PROMPT_FILE" > "$TMP"; then
             if [[ ! -s "$TMP" ]]; then
               echo "::error::Claude output empty for $REPO"
               rm -f "$TMP"

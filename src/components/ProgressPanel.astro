@@ -1,0 +1,116 @@
+---
+/**
+ * 프로젝트 상세 페이지 상단에 표시되는 진행도 패널.
+ * 최신 리포트의 progress_estimate + doc_scores 를 한 눈에 본다.
+ */
+interface Props {
+  progress: number; // 0-100
+  scores: { design: number; technical: number; spec: number };
+  updatedAt?: string;
+}
+
+const { progress, scores, updatedAt } = Astro.props;
+
+function widthPct(v: number, max: number): string {
+  const pct = Math.max(0, Math.min(100, (v / max) * 100));
+  return `${pct}%`;
+}
+
+function scoreColor(v: number): string {
+  if (v >= 8) return "bg-emerald-500 dark:bg-emerald-400";
+  if (v >= 5) return "bg-amber-500 dark:bg-amber-400";
+  return "bg-rose-500 dark:bg-rose-400";
+}
+
+function progressColor(p: number): string {
+  if (p >= 80) return "bg-emerald-500 dark:bg-emerald-400";
+  if (p >= 50) return "bg-blue-500 dark:bg-blue-400";
+  if (p >= 25) return "bg-amber-500 dark:bg-amber-400";
+  return "bg-rose-500 dark:bg-rose-400";
+}
+
+function updatedLabel(iso?: string): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+const scoreRows = [
+  { label: "Design", value: scores.design },
+  { label: "Technical", value: scores.technical },
+  { label: "Spec", value: scores.spec },
+] as const;
+---
+
+<section
+  class="mb-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
+  aria-label="프로젝트 진행도 패널"
+>
+  <div class="flex items-baseline justify-between mb-4">
+    <h2
+      class="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider"
+    >
+      프로젝트 예상 진행도
+    </h2>
+    {
+      updatedAt && (
+        <span class="text-[11px] text-slate-500 dark:text-slate-400">
+          기준: {updatedLabel(updatedAt)}
+        </span>
+      )
+    }
+  </div>
+
+  <div class="mb-5">
+    <div class="flex items-baseline gap-2 mb-1.5">
+      <span
+        class="text-3xl font-bold tabular-nums text-slate-900 dark:text-slate-100"
+      >
+        {progress}
+      </span>
+      <span class="text-slate-500 dark:text-slate-400 text-sm">/ 100</span>
+    </div>
+    <div
+      class="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"
+    >
+      <div
+        class={`h-full ${progressColor(progress)} transition-all`}
+        style={`width: ${widthPct(progress, 100)}`}
+      >
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3
+      class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2"
+    >
+      문서화 상태
+    </h3>
+    <dl class="space-y-2.5">
+      {
+        scoreRows.map(({ label, value }) => (
+          <div class="flex items-center gap-3">
+            <dt class="w-20 text-xs text-slate-600 dark:text-slate-400">
+              {label}
+            </dt>
+            <dd class="flex-1 flex items-center gap-3">
+              <div class="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                <div
+                  class={`h-full ${scoreColor(value)}`}
+                  style={`width: ${widthPct(value, 10)}`}
+                />
+              </div>
+              <span class="text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300 w-10 text-right">
+                {value}/10
+              </span>
+            </dd>
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>

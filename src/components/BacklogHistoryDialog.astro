@@ -1,0 +1,205 @@
+---
+/**
+ * Backlog 이력 팝업.
+ * 트리거 버튼 + 네이티브 `<dialog>` + backdrop 클릭/ESC 닫기.
+ *
+ * 프로젝트 페이지당 1 인스턴스만 배치할 것 (ID 충돌 방지).
+ */
+interface HistoryEntry {
+  date: string; // ISO
+  slug: string;
+  backlogs: string[];
+  resolved: string[];
+  summary: string;
+}
+
+interface Props {
+  history: HistoryEntry[];
+  projectPath: string; // 리포트 링크 base (예: "/_dashboard/<project>")
+}
+
+const { history, projectPath } = Astro.props;
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+const totalBacklogs = history.reduce((n, h) => n + h.backlogs.length, 0);
+const totalResolved = history.reduce((n, h) => n + h.resolved.length, 0);
+---
+
+<section class="mb-6">
+  <button
+    type="button"
+    data-open-backlog
+    class="w-full group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-400 dark:hover:border-slate-600 px-5 py-4 text-left transition flex items-center justify-between gap-4"
+  >
+    <div class="min-w-0">
+      <div
+        class="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider group-hover:text-blue-600 dark:group-hover:text-blue-400"
+      >
+        Backlog History
+      </div>
+      <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        리포트 {history.length}건 · backlog 누적 {totalBacklogs} · 해결 누적 {
+          totalResolved
+        }
+      </div>
+    </div>
+    <svg
+      class="w-5 h-5 text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 shrink-0"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+    >
+      <path
+        d="M9 18l6-6-6-6"
+        stroke-linecap="round"
+        stroke-linejoin="round"></path>
+    </svg>
+  </button>
+</section>
+
+<dialog
+  id="backlog-history-dialog"
+  class="w-[min(92vw,48rem)] max-h-[min(85vh,48rem)] rounded-xl p-0 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 backdrop:bg-slate-900/60 backdrop:backdrop-blur-sm shadow-xl border border-slate-200 dark:border-slate-800"
+>
+  <div
+    class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-10"
+  >
+    <div>
+      <h2
+        class="text-base font-semibold text-slate-900 dark:text-slate-100"
+      >
+        Backlog History
+      </h2>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+        리포트별 backlog · 해결 이력
+      </p>
+    </div>
+    <button
+      type="button"
+      data-close-backlog
+      aria-label="닫기"
+      class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400"
+    >
+      <svg
+        class="w-4 h-4"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"></path>
+      </svg>
+    </button>
+  </div>
+
+  <div class="px-5 py-4 overflow-y-auto">
+    {
+      history.length === 0 ? (
+        <p class="text-sm text-slate-500 dark:text-slate-400 py-12 text-center">
+          아직 이력이 없습니다.
+        </p>
+      ) : (
+        <ol class="space-y-6">
+          {history.map((h) => (
+            <li class="border-l-2 border-slate-200 dark:border-slate-800 pl-4">
+              <div class="flex items-baseline justify-between mb-2 gap-3">
+                <a
+                  href={`${projectPath}/${h.slug}/`}
+                  class="text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {formatDate(h.date)}
+                </a>
+              </div>
+              {h.summary && (
+                <p class="text-xs text-slate-600 dark:text-slate-400 mb-3 line-clamp-2">
+                  {h.summary}
+                </p>
+              )}
+              {h.resolved.length > 0 && (
+                <div class="mb-3">
+                  <div class="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1.5">
+                    해결 ({h.resolved.length})
+                  </div>
+                  <ul class="space-y-1 text-xs text-slate-700 dark:text-slate-300">
+                    {h.resolved.map((r) => (
+                      <li class="flex items-start gap-2">
+                        <span class="text-emerald-500 dark:text-emerald-400 shrink-0 font-bold">
+                          ✓
+                        </span>
+                        <span class="leading-relaxed">{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {h.backlogs.length > 0 ? (
+                <div>
+                  <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Backlog ({h.backlogs.length})
+                  </div>
+                  <ul class="space-y-1 text-xs text-slate-700 dark:text-slate-300">
+                    {h.backlogs.map((b) => (
+                      <li class="flex items-start gap-2">
+                        <span class="text-slate-400 dark:text-slate-500 shrink-0">
+                          ·
+                        </span>
+                        <span class="leading-relaxed">{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 italic">
+                  이 시점에 기록된 backlog 없음.
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      )
+    }
+  </div>
+</dialog>
+
+<script is:inline>
+  (function () {
+    const dialog = document.getElementById("backlog-history-dialog");
+    if (!dialog) return;
+
+    function open() {
+      if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+    }
+    function close() {
+      if (typeof dialog.close === "function") {
+        dialog.close();
+      } else {
+        dialog.removeAttribute("open");
+      }
+    }
+
+    document.querySelectorAll("[data-open-backlog]").forEach((btn) => {
+      btn.addEventListener("click", open);
+    });
+    document.querySelectorAll("[data-close-backlog]").forEach((btn) => {
+      btn.addEventListener("click", close);
+    });
+    // backdrop 클릭 닫기 (<dialog> 자체 클릭은 backdrop 에서만 발생)
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) close();
+    });
+  })();
+</script>

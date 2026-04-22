@@ -13,14 +13,19 @@ default (no --strict):
 검증 항목:
   1. frontmatter (--- ... ---) 블록 존재 + body 와 올바르게 분리
   2. body 안에 추가 `---` 블록이 없음 (frontmatter 중복 방지)
-  3. 필수 필드 7 개 (project/date/commit_range/commit_count/risk_level/tags/summary)
-  4. commit_range 가 Astro zod regex `^[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}$` 와 일치
+  3. 필수 필드 11 개:
+       project / date / commit_range / commit_count / risk_level / tags /
+       summary / progress_estimate / doc_scores / todos / backlogs
+     (resolved_from_backlog 는 선택 — 해결 항목이 없으면 빈 배열 또는 생략)
+  4. commit_range 가 Astro zod regex `^[0-9a-f]{7,40}\\.\\.[0-9a-f]{7,40}$` 와 일치
   5. risk_level ∈ {low, medium, high}
   6. date 가 ISO 8601 with offset
-  7. (--project 지정 시) project 필드가 입력 repo 와 일치
-  8. 본문 4 개 섹션 헤딩
-  9. content 어디에도 알려진 secret 패턴이 없어야 함
-     (Anthropic OAuth / GitHub PAT / OAuth / server tokens)
+  7. progress_estimate 는 0-100 정수
+  8. doc_scores.{design,technical,spec} 는 각각 0-10 정수
+  9. tags / todos / backlogs / resolved_from_backlog 는 문자열 배열
+  10. (--project 지정 시) project 필드가 입력 repo 와 일치
+  11. 본문 필수 6 개 섹션 헤딩. resolved_from_backlog 가 비어있지 않으면 § 7 도 필수
+  12. content 어디에도 알려진 secret 패턴이 없어야 함 (Anthropic OAuth / GitHub PAT 등)
 
 이 파일은 test-prompt.sh 와 generate-reports.yml 양쪽에서 재사용되므로
 검증 로직이 한 곳에만 존재한다 (drift 방지).
@@ -30,6 +35,16 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+
+try:
+    import yaml
+except ImportError:
+    print(
+        "[validate-report] PyYAML 이 설치되어 있지 않음. "
+        "`pip install pyyaml` 또는 apt 로 `python3-yaml` 설치 필요.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -47,11 +62,17 @@ REQUIRED_HEADINGS: list[str] = [
     "## 2. 코드 품질 리뷰",
     "## 3. 진행도 평가",
     "## 4. 다음 권장사항",
+    "## 5. 문서화 상태",
+    "## 6. Backlog",
 ]
+
+# resolved_from_backlog 가 있으면 추가 필수. 없으면 이 섹션 자체 생략 허용.
+CONDITIONAL_HEADING: str = "## 7. 이전 Backlog 해결"
 
 REQUIRED_FIELDS: list[str] = [
     "project", "date", "commit_range", "commit_count",
     "risk_level", "tags", "summary",
+    "progress_estimate", "doc_scores", "todos", "backlogs",
 ]
 
 COMMIT_RANGE_RE = re.compile(r"^[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}$", re.IGNORECASE)
@@ -62,11 +83,9 @@ ISO_8601_RE = re.compile(
 FRONTMATTER_RE = re.compile(r"^\s*---\n(.*?)\n---\n(.*)", re.DOTALL)
 
 
-def _get_field(fm: str, name: str) -> str | None:
-    """frontmatter 문자열에서 `name: value` 첫 매치를 리턴. YAML list·multiline 은
-    여기서 다루지 않고 None 리턴 (tags 같은 배열은 별도 검증)."""
-    m = re.search(rf'^{name}\s*:\s*"?([^"\n]*)"?\s*$', fm, re.MULTILINE)
-    return m.group(1).strip() if m else None
+def _is_int(v: object) -> bool:
+    """bool 은 int 의 subclass 라 분리."""
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def validate(content: str, expected_project: str | None = None) -> list[str]:
@@ -76,43 +95,104 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
     if not m:
         return ["frontmatter (--- ... ---) 블록을 찾을 수 없음"]
 
-    fm, body = m.group(1), m.group(2)
+    fm_raw, body = m.group(1), m.group(2)
 
-    # 중복 frontmatter (body 안 `---` 블록) — 경고 수준이지만 Astro 가 깨질 수 있음
+    # body 안 추가 `---` 블록 — Astro 파서가 깨질 수 있음
     if re.search(r"\n---\s*\n", body):
-        errors.append("body 안에 추가 `---` 블록이 감지됨 (frontmatter 중복 가능성)")
+        errors.append("body 안에 추가 `---` 블록 감지 (frontmatter 중복 가능성)")
+
+    # frontmatter YAML 파싱
+    try:
+        fm = yaml.safe_load(fm_raw)
+    except yaml.YAMLError as e:
+        return errors + [f"frontmatter YAML 파싱 실패: {e}"]
+
+    if not isinstance(fm, dict):
+        return errors + ["frontmatter 가 YAML 객체가 아님 (top-level dict 필요)"]
 
     # 필수 필드 존재
     for f in REQUIRED_FIELDS:
-        if not re.search(rf"^{f}\s*:", fm, re.MULTILINE):
+        if f not in fm:
             errors.append(f"frontmatter 필드 누락: {f}")
 
-    # 개별 필드 값 검증
-    cr = _get_field(fm, "commit_range")
-    if cr is not None and not COMMIT_RANGE_RE.match(cr):
+    # commit_range
+    cr = fm.get("commit_range")
+    if cr is not None and not COMMIT_RANGE_RE.match(str(cr)):
         errors.append(
             f"commit_range 형식 오류 (기대: `<7-40hex>..<7-40hex>`, got: {cr!r})"
         )
 
-    rl = _get_field(fm, "risk_level")
+    # risk_level
+    rl = fm.get("risk_level")
     if rl is not None and rl not in {"low", "medium", "high"}:
         errors.append(f"risk_level 값 오류 (got: {rl!r}, 기대: low/medium/high)")
 
-    dt = _get_field(fm, "date")
-    if dt is not None and not ISO_8601_RE.match(dt):
+    # date
+    dt = fm.get("date")
+    if dt is not None and not ISO_8601_RE.match(str(dt)):
         errors.append(f"date 가 ISO 8601 with offset 이 아님 (got: {dt!r})")
 
+    # project 일치
     if expected_project is not None:
-        pj = _get_field(fm, "project")
+        pj = fm.get("project")
         if pj is not None and pj != expected_project:
             errors.append(
                 f"project 값이 입력과 불일치 (got: {pj!r}, expected: {expected_project!r})"
             )
 
-    # 본문 섹션 헤딩
+    # commit_count 정수
+    cc = fm.get("commit_count")
+    if cc is not None and (not _is_int(cc) or cc < 0):
+        errors.append(f"commit_count 는 0 이상 정수여야 함 (got: {cc!r})")
+
+    # progress_estimate 0-100 정수
+    pe = fm.get("progress_estimate")
+    if pe is not None and (not _is_int(pe) or pe < 0 or pe > 100):
+        errors.append(f"progress_estimate 는 0-100 정수여야 함 (got: {pe!r})")
+
+    # doc_scores 객체 + 세 축
+    ds = fm.get("doc_scores")
+    if ds is not None:
+        if not isinstance(ds, dict):
+            errors.append(f"doc_scores 는 객체여야 함 (got: {type(ds).__name__})")
+        else:
+            for axis in ("design", "technical", "spec"):
+                if axis not in ds:
+                    errors.append(f"doc_scores.{axis} 누락")
+                else:
+                    v = ds[axis]
+                    if not _is_int(v) or v < 0 or v > 10:
+                        errors.append(
+                            f"doc_scores.{axis} 는 0-10 정수여야 함 (got: {v!r})"
+                        )
+
+    # tags / todos / backlogs / resolved_from_backlog — 문자열 배열
+    for arr_field in ("tags", "todos", "backlogs", "resolved_from_backlog"):
+        if arr_field in fm:
+            v = fm[arr_field]
+            if not isinstance(v, list):
+                errors.append(
+                    f"{arr_field} 는 배열이어야 함 (got: {type(v).__name__})"
+                )
+            else:
+                for i, item in enumerate(v):
+                    if not isinstance(item, str):
+                        errors.append(
+                            f"{arr_field}[{i}] 는 문자열이어야 함 "
+                            f"(got: {type(item).__name__})"
+                        )
+
+    # 본문 필수 섹션 헤딩
     for h in REQUIRED_HEADINGS:
         if h not in body:
             errors.append(f"본문 섹션 헤딩 누락: {h}")
+
+    # 조건부: resolved_from_backlog 이 비어있지 않으면 § 7 헤딩도 필요
+    rfb = fm.get("resolved_from_backlog")
+    if isinstance(rfb, list) and len(rfb) > 0 and CONDITIONAL_HEADING not in body:
+        errors.append(
+            f"resolved_from_backlog 에 항목이 있으면 본문에 `{CONDITIONAL_HEADING}` 섹션 필요"
+        )
 
     # secret 누출 탐지 (전체 content — frontmatter·body 양쪽)
     for pat, name in SECRET_PATTERNS:

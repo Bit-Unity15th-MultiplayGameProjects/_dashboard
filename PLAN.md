@@ -7,7 +7,7 @@ LLM 비결정성 때문에 단위 테스트가 어렵다) **수동 실행 + Acti
 돌려본 뒤 main 에 머지한다.
 
 - 대상 파이프라인: `.github/workflows/generate-reports.yml`
-- 테스트 repo (예시): `alpha`, `beta`, `gamma` — 실제 org 의 수강생 팀 하나 지정
+- 테스트 repo (예시): `alpha`, `beta`, `gamma` — 실제 org 의 프로젝트 하나 지정
 - 관측 도구: Actions 탭의 step log + Actions summary 테이블 + 커밋된 `reports/`·`.meta.json`
 
 ---
@@ -19,7 +19,7 @@ LLM 비결정성 때문에 단위 테스트가 어렵다) **수동 실행 + Acti
 1. Secrets 두 개가 설정되어 있다: `CLAUDE_CODE_OAUTH_TOKEN`, `ORG_REPO_PAT_BIT_UNITY_15TH`.
    (값이 유효하지 않으면 discover 또는 run 단계에서 401/403 으로 조기 종료한다.)
 2. Pages source 가 "GitHub Actions" 로 설정되어 있다.
-3. 테스트용 repo 하나(이하 `$R`)를 고른다. 실제 수강생 repo 라면 `force=false` 로
+3. 테스트용 repo 하나(이하 `$R`)를 고른다. 실제 프로젝트 repo 라면 `force=false` 로
    트래픽만 확인하고, 필요하면 팀에 사전 공지.
 4. 각 시나리오 시작 전에 `reports/$R/.meta.json` 의 현재 상태를 스냅샷:
    ```bash

@@ -114,7 +114,25 @@ function formatDate(iso: string) {
             {data.commit_count}
           </dd>
         </div>
-        <div class="col-span-2">
+        <div>
+          <dt class="text-slate-500 dark:text-slate-500 uppercase tracking-wider">
+            Progress
+          </dt>
+          <dd class="mt-0.5 font-mono text-slate-800 dark:text-slate-200 tabular-nums">
+            {data.progress_estimate}%
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500 dark:text-slate-500 uppercase tracking-wider">
+            Docs (D/T/S)
+          </dt>
+          <dd class="mt-0.5 font-mono text-slate-800 dark:text-slate-200 tabular-nums">
+            {data.doc_scores.design}/{data.doc_scores.technical}/{
+              data.doc_scores.spec
+            }
+          </dd>
+        </div>
+        <div class="col-span-2 sm:col-span-4">
           <dt class="text-slate-500 dark:text-slate-500 uppercase tracking-wider">
             Range
           </dt>

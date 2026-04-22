@@ -67,7 +67,7 @@ if [[ -z "$FROM_SHA" || "$FROM_SHA" == "INITIAL" ]]; then
   echo "[info] first report — shallow clone (depth=50)" >&2
   git clone --quiet --depth=50 "$AUTHED_URL" "$TARGET_DIR"
 else
-  # full clone. 수강생 repo 규모상 대부분 수 MB 이하라 감당 가능.
+  # full clone. 프로젝트 repo 규모상 대부분 수 MB 이하라 감당 가능.
   echo "[info] full clone for range $FROM_SHA..$TO_SHA" >&2
   git clone --quiet "$AUTHED_URL" "$TARGET_DIR"
 
@@ -167,12 +167,79 @@ else
 ... [diff sampled: ${INCLUDED} files included, ${SKIPPED} skipped; see git diff --stat for full picture] ..."
 fi
 
-# ---- 이전 리포트 날짜 ------------------------------------------------------
+# ---- 이전 리포트 정보 (날짜 + backlog) -----------------------------------
 
 if [[ -f "$META_FILE" ]]; then
   LAST_REPORT_DATE="$(jq -r '.last_report_at // "없음"' "$META_FILE")"
+  LAST_REPORT_FILE="$(jq -r '.last_report_file // ""' "$META_FILE")"
 else
   LAST_REPORT_DATE="없음"
+  LAST_REPORT_FILE=""
+fi
+
+# 이전 리포트 frontmatter 의 backlogs 를 bullet 목록으로 추출. 없으면 안내 문구.
+# PyYAML 이 없으면 전체 스크립트가 상위에서 실패해야 하니 여기선 fallback 문구만.
+PREVIOUS_BACKLOG="(첫 리포트이거나 이전 리포트에 backlog 기록이 없음)"
+if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
+  EXTRACTED="$(
+    python3 - "$ROOT_DIR/$LAST_REPORT_FILE" <<'PY'
+import re, sys
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        content = f.read()
+except OSError:
+    sys.exit(0)
+m = re.match(r"^\s*---\n(.*?)\n---", content, re.DOTALL)
+if not m:
+    sys.exit(0)
+try:
+    fm = yaml.safe_load(m.group(1)) or {}
+except yaml.YAMLError:
+    sys.exit(0)
+items = fm.get("backlogs") or []
+for item in items:
+    if isinstance(item, str):
+        print(f"- {item}")
+PY
+  )"
+  if [[ -n "$EXTRACTED" ]]; then
+    PREVIOUS_BACKLOG="$EXTRACTED"
+  fi
+fi
+
+# ---- _sample/docs rubric 레퍼런스 ----------------------------------------
+# 문서 완성도 평가 rubric. _sample 은 org 관리자 통제 하의 정적 참조 repo.
+# 매 run 얕은 clone (가벼움) — 항상 최신 기준을 사용.
+SAMPLE_REPO="_sample"
+SAMPLE_DIR="/tmp/sample-docs-${REPO//\//__}"
+SAMPLE_AUTHED_URL="https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${SAMPLE_REPO}.git"
+rm -rf "$SAMPLE_DIR"
+
+SAMPLE_DOCS_REFERENCE="(rubric 레퍼런스 로드 실패 — 기본 기준으로 평가)"
+if git clone --quiet --depth=1 "$SAMPLE_AUTHED_URL" "$SAMPLE_DIR" 2>/dev/null; then
+  if [[ -d "$SAMPLE_DIR/docs" ]]; then
+    SAMPLE_CONTENT="$(
+      find "$SAMPLE_DIR/docs" -name '*.md' -type f 2>/dev/null \
+        | while IFS= read -r f; do
+            printf '\n=== %s ===\n\n' "${f#"$SAMPLE_DIR/docs/"}"
+            cat "$f"
+          done \
+        | head -c 8192
+    )"
+    if [[ -n "$SAMPLE_CONTENT" ]]; then
+      SAMPLE_DOCS_REFERENCE="$SAMPLE_CONTENT"
+      echo "[info] sample docs fetched ($(printf '%s' "$SAMPLE_DOCS_REFERENCE" | wc -c) bytes)" >&2
+    fi
+  else
+    echo "[warn] _sample/docs not present; using fallback rubric" >&2
+  fi
+  rm -rf "$SAMPLE_DIR"
+else
+  echo "[warn] _sample clone failed; using fallback rubric" >&2
 fi
 
 # ---- 템플릿 치환 -----------------------------------------------------------
@@ -186,6 +253,8 @@ COMMIT_LOG="$COMMIT_LOG" \
 DIFF_STAT="$DIFF_STAT" \
 DIFF_CONTENT="$DIFF_CONTENT" \
 LAST_REPORT_DATE="$LAST_REPORT_DATE" \
+PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
+SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
 python3 - "$TEMPLATE" "$OUTPUT_PATH" <<'PY'
 import os, sys, re
 src, dst = sys.argv[1], sys.argv[2]
@@ -194,14 +263,21 @@ with open(src, "r", encoding="utf-8") as f:
 # 상단 HTML 주석 블록 strip (휴먼용 메모 — Claude 에겐 보내지 않음)
 tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 
-# 수강생이 직접 통제 가능한 필드: 경계 태그를 위조/탈출하는 시도 차단.
+# 외부 입력으로 통제 가능한 필드: 경계 태그를 위조/탈출하는 시도 차단.
 # <student_content> / </student_content> 의 대소문자·공백 변형 모두 치환.
-STUDENT_CONTROLLED = {"COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT"}
+# PREVIOUS_BACKLOG 은 Claude 가 생성한 이전 리포트 내용이라 2차 주입 방어,
+# SAMPLE_DOCS_REFERENCE 는 org 관리자 통제지만 혹시 docs 에 예시 태그가 쓰이면
+# 의도치 않게 경계가 깨질 수 있어 함께 sanitize.
+STUDENT_CONTROLLED = {
+    "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
+    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
+}
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
 
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
+    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
 ):
     value = os.environ.get(key, "")
     if key in STUDENT_CONTROLLED:

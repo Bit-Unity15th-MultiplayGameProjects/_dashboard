@@ -1,0 +1,2 @@
+# Keep `reports/` dir in git so Astro glob loader has a valid base.
+# Actual reports are added by `.github/workflows/generate-reports.yml`.

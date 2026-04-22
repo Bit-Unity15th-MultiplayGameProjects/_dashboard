@@ -2,7 +2,7 @@
 #
 # list-target-repos.sh
 #
-# Org 내의 리뷰 대상 수강생 repo 목록을 JSON 배열로 stdout 에 출력.
+# Org 내의 리뷰 대상 프로젝트 repo 목록을 JSON 배열로 stdout 에 출력.
 #
 # GitHub Actions 에서 matrix 주입에 쓰인다:
 #   repos: ${{ fromJSON(steps.list.outputs.repos) }}
@@ -11,7 +11,7 @@
 #   - `archived` 아님
 #   - 이름이 `_` 로 시작하지 않음 (교육용/인프라 repo 제외)
 #   - repo root 의 `.reviewignore` 에 나열되지 않음 (운영자 수동 제외)
-#   - (fork 여부는 필터하지 않음 — 수강생 팀이 template fork 하는 경우 있음)
+#   - (fork 여부는 필터하지 않음 — 프로젝트가 template fork 하는 경우 있음)
 #
 # .reviewignore 포맷:
 #   - 한 줄에 repo 이름 하나

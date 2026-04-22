@@ -1,7 +1,7 @@
 # Project Context
 
 ## 목적
-Bit-Unity15th-MultiplayGameProjects organization 내 수강생 프로젝트 repo들에 대해
+Bit-Unity15th-MultiplayGameProjects organization 내 프로젝트 repo들에 대해
 주기적으로 Claude 기반 코드리뷰/진행도 리포트를 자동 생성하고,
 이를 GitHub Pages 대시보드로 공개한다.
 
@@ -9,11 +9,11 @@ Bit-Unity15th-MultiplayGameProjects organization 내 수강생 프로젝트 repo
 - Name: Bit-Unity15th-MultiplayGameProjects
 - URL: https://github.com/Bit-Unity15th-MultiplayGameProjects
 - 이 repo (`_dashboard`)가 오케스트레이터 + 프론트엔드 역할
-- 수강생 repo에는 어떤 workflow도 추가하지 않는다 (프로젝트 repo는 깨끗하게 유지)
+- 프로젝트 repo에는 어떤 workflow도 추가하지 않는다 (프로젝트 repo는 깨끗하게 유지)
 
 ## Repo 분류 규칙
 - `_` prefix로 시작하는 repo는 교육용 (예: _sample, _dashboard, _guidelines) → 리뷰 제외
-- `_` prefix 없는 repo는 수강생 프로젝트 → 리뷰 대상
+- `_` prefix 없는 repo는 프로젝트 → 리뷰 대상
 - archived repo도 제외
 
 ## 업데이트 정책 (과다 호출 방지)
@@ -32,7 +32,7 @@ cron으로 주기 체크하되, 4단계 게이트로 실제 Claude 호출을 제
 ## 기술 스택
 - Frontend: Astro + Tailwind + Content Collections
 - CI/CD: GitHub Actions
-- AI: anthropics/claude-code-action@beta (Max 구독 OAuth)
+- AI: Claude CLI (`@anthropic-ai/claude-code`) headless 모드, `--model claude-opus-4-7`, Max 구독 OAuth
 - Deploy: GitHub Pages (Actions 방식)
 
 ## 디렉토리 구조
@@ -62,27 +62,39 @@ _dashboard/
 
 ## Secrets (GitHub)
 - CLAUDE_CODE_OAUTH_TOKEN: Max 구독 OAuth 토큰
-- ORG_REPO_PAT_BIT_UNITY_15TH: 수강생 repo 읽기 전용 fine-grained PAT (Contents:Read + Metadata:Read, All repositories). `_dashboard` 자체 푸시는 workflow 기본 `GITHUB_TOKEN` 이 담당.
+- ORG_REPO_PAT_BIT_UNITY_15TH: 프로젝트 repo 읽기 전용 fine-grained PAT (Contents:Read + Metadata:Read, All repositories). `_dashboard` 자체 푸시는 workflow 기본 `GITHUB_TOKEN` 이 담당.
 
 ## 리포트 포맷
-Markdown + YAML frontmatter.
-frontmatter 필드:
+Markdown + YAML frontmatter. 상세 스펙은 `scripts/review-prompt.md`,
+Zod 스키마는 `src/content/config.ts`, validator 는 `scripts/validate-report.py`.
+
+frontmatter 필드 (필수 11 + 선택 1):
 - project: string
-- date: ISO 8601
-- commit_range: string (from_sha..to_sha)
+- date: ISO 8601 with offset
+- commit_range: string (`from_sha..to_sha`)
 - commit_count: number
 - risk_level: "low" | "medium" | "high"
 - tags: string[]
-- summary: string (한 줄 요약)
+- summary: string (한 줄 요약, 60자 이내)
+- progress_estimate: number (0-100, %. Claude 종합 판정)
+- doc_scores: { design, technical, spec } 각 0-10 정수
+- todos: string[] (3-10개, 다음 리포트까지 유효한 actionable 항목)
+- backlogs: string[] (이 시점 미해결 이슈, 다음 리포트로 이월됨)
+- resolved_from_backlog: string[] (이전 backlog 중 해결된 항목, 없으면 [])
 
-본문 섹션:
+본문 섹션 (6 필수 + 1 조건부):
 1. 주요 변경사항
 2. 코드 품질 리뷰
 3. 진행도 평가
 4. 다음 권장사항
+5. 문서화 상태 (doc_scores 근거)
+6. Backlog (backlogs frontmatter 와 일치)
+7. 이전 Backlog 해결 (resolved_from_backlog 있을 때만)
+
+문서 완성도 rubric 기준: `_sample/docs` (run-claude-review.sh 가 매 run clone).
 
 ## 작업 원칙
-- 수강생 repo는 read-only로만 다룬다
+- 프로젝트 repo는 read-only로만 다룬다
 - 모든 상태는 reports/{repo}/.meta.json에 기록
 - Claude 호출 비용을 의식하고 게이트 로직을 우회하지 않는다
 - 리포트는 항상 한국어로 작성

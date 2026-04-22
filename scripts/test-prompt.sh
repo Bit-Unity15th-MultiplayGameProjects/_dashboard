@@ -99,6 +99,7 @@ fi
 META_FILE="$ROOT_DIR/reports/$PROJECT_NAME/.meta.json"
 LAST_SHA=""
 LAST_REPORT_DATE="없음"
+LAST_REPORT_FILE=""
 
 if [[ -f "$META_FILE" ]]; then
   LAST_SHA="$(
@@ -107,6 +108,63 @@ if [[ -f "$META_FILE" ]]; then
   LAST_REPORT_DATE="$(
     python3 -c "import json; d=json.load(open('$META_FILE')); print(d.get('last_report_at','없음'))"
   )"
+  LAST_REPORT_FILE="$(
+    python3 -c "import json; d=json.load(open('$META_FILE')); print(d.get('last_report_file',''))"
+  )"
+fi
+
+# ---- 이전 backlog 추출 ----------------------------------------------------
+
+PREVIOUS_BACKLOG="(첫 리포트이거나 이전 리포트에 backlog 기록이 없음)"
+if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
+  EXTRACTED="$(
+    python3 - "$ROOT_DIR/$LAST_REPORT_FILE" <<'PY'
+import re, sys
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        content = f.read()
+except OSError:
+    sys.exit(0)
+m = re.match(r"^\s*---\n(.*?)\n---", content, re.DOTALL)
+if not m:
+    sys.exit(0)
+try:
+    fm = yaml.safe_load(m.group(1)) or {}
+except yaml.YAMLError:
+    sys.exit(0)
+for item in fm.get("backlogs") or []:
+    if isinstance(item, str):
+        print(f"- {item}")
+PY
+  )"
+  if [[ -n "$EXTRACTED" ]]; then
+    PREVIOUS_BACKLOG="$EXTRACTED"
+  fi
+fi
+
+# ---- _sample/docs rubric (로컬 캐시가 있으면 사용) -----------------------
+# 로컬 dry-run 은 굳이 clone 하지 않고 fallback. CI (run-claude-review.sh) 는
+# 매 run 얕은 clone 으로 최신 rubric 을 보장.
+
+SAMPLE_DOCS_REFERENCE="(로컬 dry-run — _sample/docs rubric 생략. CI 에서는 매 run fetch)"
+SAMPLE_CACHE="${TMPDIR:-/tmp}/bit-unity15th-dashboard-cache/_sample"
+if [[ -d "$SAMPLE_CACHE/docs" ]]; then
+  SAMPLE_CONTENT="$(
+    find "$SAMPLE_CACHE/docs" -name '*.md' -type f 2>/dev/null \
+      | while IFS= read -r f; do
+          printf '\n=== %s ===\n\n' "${f#"$SAMPLE_CACHE/docs/"}"
+          cat "$f"
+        done \
+      | head -c 8192
+  )"
+  if [[ -n "$SAMPLE_CONTENT" ]]; then
+    SAMPLE_DOCS_REFERENCE="$SAMPLE_CONTENT"
+    echo "[info] using cached _sample/docs from $SAMPLE_CACHE" >&2
+  fi
 fi
 
 if [[ -n "$RANGE_OVERRIDE" ]]; then
@@ -161,6 +219,8 @@ FILLED_PROMPT="$(
   DIFF_STAT="$DIFF_STAT" \
   DIFF_CONTENT="$DIFF_CONTENT" \
   LAST_REPORT_DATE="$LAST_REPORT_DATE" \
+  PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
+  SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
   python3 - "$TEMPLATE" <<'PY'
 import os, sys, re
 path = sys.argv[1]
@@ -172,6 +232,7 @@ tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
+    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
 ):
     tmpl = tmpl.replace("{{" + key + "}}", os.environ.get(key, ""))
 # 남아있는 {{FOO}} 가 있으면 경고 (치환 누락)
@@ -200,7 +261,7 @@ echo "[info] calling $CLAUDE_BIN -p (headless)" >&2
 
 TMP_OUT="$(mktemp)"
 trap 'rm -f "$TMP_OUT"' EXIT
-printf '%s\n' "$FILLED_PROMPT" | "$CLAUDE_BIN" -p --output-format text > "$TMP_OUT"
+printf '%s\n' "$FILLED_PROMPT" | "$CLAUDE_BIN" -p --output-format text --model claude-opus-4-7 > "$TMP_OUT"
 
 # 출력 스키마 + secret 정합성 체크. 로컬 디버깅용이므로 실패해도 출력은
 # 그대로 stdout 으로 내보내고 --strict 는 붙이지 않는다.

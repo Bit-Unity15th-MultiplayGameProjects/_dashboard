@@ -27,10 +27,10 @@ function projectHref(project: string) {
 <Layout title="Bit-Unity15th Dashboard">
   <section class="mb-8">
     <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">
-      수강생 프로젝트 대시보드
+      프로젝트 대시보드
     </h1>
     <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">
-      Bit-Unity15th-MultiplayGameProjects organization 내 수강생 repo들의
+      Bit-Unity15th-MultiplayGameProjects organization 내 프로젝트 repo들의
       코드리뷰/진행도 리포트를 주기적으로 수집합니다.
     </p>
   </section>
@@ -72,6 +72,7 @@ function projectHref(project: string) {
               risk={p.latest.entry.data.risk_level}
               tags={p.latest.entry.data.tags}
               reportCount={p.reports.length}
+              progress={p.latest.entry.data.progress_estimate}
             />
           ))}
         </div>

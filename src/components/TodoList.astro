@@ -1,0 +1,45 @@
+---
+/**
+ * 최신 리포트의 todos 를 번호 매겨 표시.
+ */
+interface Props {
+  todos: string[];
+}
+
+const { todos } = Astro.props;
+---
+
+<section
+  class="mb-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
+  aria-label="현재 TODO 목록"
+>
+  <div class="flex items-baseline justify-between mb-3">
+    <h2
+      class="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider"
+    >
+      TODO
+    </h2>
+    <span class="text-[11px] text-slate-500 dark:text-slate-400">
+      최신 리포트 기준 · {todos.length}건
+    </span>
+  </div>
+
+  {
+    todos.length === 0 ? (
+      <p class="text-sm text-slate-500 dark:text-slate-400 py-2">
+        등록된 TODO 가 없습니다.
+      </p>
+    ) : (
+      <ol class="space-y-2">
+        {todos.map((item, i) => (
+          <li class="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
+            <span class="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold tabular-nums text-slate-600 dark:text-slate-400 shrink-0">
+              {i + 1}
+            </span>
+            <span class="leading-relaxed">{item}</span>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+</section>

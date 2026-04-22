@@ -7,10 +7,10 @@
 
 ## 1. 프로젝트 개요
 
-`Bit-Unity15th-MultiplayGameProjects` organization 안의 수강생 프로젝트 repo들에
+`Bit-Unity15th-MultiplayGameProjects` organization 안의 프로젝트 repo들에
 대해 **Claude 기반 코드리뷰·진행도 리포트**를 GitHub Actions cron 으로 자동 생성하고,
 생성된 리포트를 Astro 정적 사이트로 빌드하여 GitHub Pages 대시보드로 노출하는
-중앙 오케스트레이터 repo. 수강생 repo에는 워크플로우·스크립트·커밋을 일절 추가하지
+중앙 오케스트레이터 repo. 프로젝트 repo에는 워크플로우·스크립트·커밋을 일절 추가하지
 않고 오직 이 repo 한 곳에서 전체 파이프라인을 돌린다.
 
 ---
@@ -41,14 +41,14 @@ flowchart TB
     BLD["astro build<br/>assets/ (not _astro/)"] --> PAGES[("GitHub Pages")]
   end
 
-  ORG[("Bit-Unity15th org<br/>수강생 repo들")] -. ORG_REPO_PAT_BIT_UNITY_15TH .-> D
+  ORG[("Bit-Unity15th org<br/>프로젝트 repo들")] -. ORG_REPO_PAT_BIT_UNITY_15TH .-> D
   ORG -. ORG_REPO_PAT_BIT_UNITY_15TH clone .-> PR
   MAX[/"CLAUDE_CODE_OAUTH_TOKEN<br/>Max 구독"/] -. OAuth .-> CL
 ```
 
 핵심 흐름:
 
-1. **discover** — `list-target-repos.sh` 로 org 안 수강생 repo 목록을 뽑는다.
+1. **discover** — `list-target-repos.sh` 로 org 안 프로젝트 repo 목록을 뽑는다.
    archived repo, `_` prefix repo, `.reviewignore` 에 나열된 repo 는 제외.
 2. **review (repo 당 cell)** — `check-needs-report.sh` 의 3단계 skip 게이트
    (SHA 변화 / 쿨다운 / 커밋수) 를 통과한 repo 만 clone·diff 추출 후 Claude CLI 를
@@ -91,7 +91,7 @@ Claude Max 구독의 장기 OAuth 토큰. CI 에서 `claude -p` 를 headless 로
 
 #### 3.1.2 `ORG_REPO_PAT_BIT_UNITY_15TH`
 
-org 내 수강생 private repo 를 읽기 위한 fine-grained PAT (read-only).
+org 내 프로젝트 private repo 를 읽기 위한 fine-grained PAT (read-only).
 기본 `GITHUB_TOKEN` 으로는 org 의 다른 repo 에 접근할 수 없어 별도 PAT 이 필요하다.
 `reports/` 커밋 푸시는 이 repo 의 `GITHUB_TOKEN` 이 처리하므로, PAT 자체는 쓰기 권한이 필요 없다.
 
@@ -100,9 +100,9 @@ org 내 수강생 private repo 를 읽기 위한 fine-grained PAT (read-only).
 2. 주요 필드:
    - **Resource owner**: `Bit-Unity15th-MultiplayGameProjects`
      (권한이 없으면 org admin 에게 approve 요청 필요)
-   - **Repository access**: *All repositories* (또는 수강생 repo 전부 + 이 repo)
+   - **Repository access**: *All repositories* (또는 프로젝트 repo 전부 + 이 repo)
    - **Repository permissions**:
-     - **Contents**: **Read-only** (수강생 repo clone + `gh api` 호출 용)
+     - **Contents**: **Read-only** (프로젝트 repo clone + `gh api` 호출 용)
      - **Metadata**: Read (자동 부여)
      - 그 외 모든 권한: **No access**
    - **Expiration**: org 정책에 따라 (최대 1년). 만료 전 알림 달력 등록 권장.
@@ -167,7 +167,7 @@ env:
 - `MIN_COMMITS` 를 늘리면 잔잔한 작업(1커밋짜리 오타 수정 등)에 리포트가 안
   낭비된다.
 - cron 자체를 `0 */2 * * *` 같이 늘리면 discover/gate 실행 빈도도 줄어
-  Actions 사용량까지 절감된다. 단 수강생 push 에 대한 반응성은 낮아진다.
+  Actions 사용량까지 절감된다. 단 프로젝트 push 에 대한 반응성은 낮아진다.
 
 수정 후 main 에 push 하면 다음 cron 틱부터 적용.
 
