@@ -88,6 +88,33 @@ def _is_int(v: object) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def normalize(content: str) -> tuple[str, list[str]]:
+    """Claude 출력의 흔한 1 급 실수를 자동 보정.
+
+    현재 보정 대상:
+      - 닫는 `---` 누락: opening fence 는 있는데 YAML 직후 본문 heading 이 바로
+        시작하는 경우. 첫 `# <heading>` 라인 앞에 `---\\n\\n` 을 삽입.
+
+    반환: (fixed_content, applied_fix_descriptions).
+    빈 리스트면 원문 그대로.
+    """
+    fixes: list[str] = []
+
+    opens = re.match(r"^\s*---\s*\n", content)
+    if opens:
+        after = content[opens.end():]
+        closes = re.search(r"\n---\s*\n", after)
+        if not closes:
+            # 본문 heading (맨 앞이 `# `, `## ` 는 아님) 을 찾아 그 앞에 닫는 fence 를 주입.
+            body = re.search(r"\n(# \S)", after)
+            if body:
+                insert_at = opens.end() + body.start(1)
+                content = content[:insert_at] + "---\n\n" + content[insert_at:]
+                fixes.append("closing `---` 누락 자동 보정 (본문 `# ` 헤딩 앞 삽입)")
+
+    return content, fixes
+
+
 def validate(content: str, expected_project: str | None = None) -> list[str]:
     errors: list[str] = []
 
@@ -217,6 +244,20 @@ def main() -> int:
     except OSError as e:
         print(f"[validate-report] 파일 열 수 없음: {e}", file=sys.stderr)
         return 2
+
+    # 흔한 1 급 출력 실수 자동 보정. 실제로 content 가 바뀌면 파일에 다시 쓴다
+    # → Astro 빌드 시 고쳐진 내용을 본다.
+    content, fixes = normalize(content)
+    if fixes:
+        try:
+            with open(args.path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except OSError as e:
+            print(f"[validate-report] auto-fix write 실패: {e}", file=sys.stderr)
+            return 2
+        print("[validate-report] AUTO-FIXED:", file=sys.stderr)
+        for f in fixes:
+            print(f"  - {f}", file=sys.stderr)
 
     errors = validate(content, args.project)
     if errors:

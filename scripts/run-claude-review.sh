@@ -222,13 +222,40 @@ rm -rf "$SAMPLE_DIR"
 SAMPLE_DOCS_REFERENCE="(rubric 레퍼런스 로드 실패 — 기본 기준으로 평가)"
 if git clone --quiet --depth=1 "$SAMPLE_AUTHED_URL" "$SAMPLE_DIR" 2>/dev/null; then
   if [[ -d "$SAMPLE_DIR/docs" ]]; then
+    # Python 으로 safe aggregation — shell `find | while | head -c` 는 head 가
+    # 상한에 도달하는 순간 상류에 SIGPIPE 를 보내 `set -e pipefail` 와 충돌.
     SAMPLE_CONTENT="$(
-      find "$SAMPLE_DIR/docs" -name '*.md' -type f 2>/dev/null \
-        | while IFS= read -r f; do
-            printf '\n=== %s ===\n\n' "${f#"$SAMPLE_DIR/docs/"}"
-            cat "$f"
-          done \
-        | head -c 8192
+      SAMPLE_DOCS_DIR="$SAMPLE_DIR/docs" python3 - <<'PY'
+import os, sys
+base = os.environ.get("SAMPLE_DOCS_DIR", "")
+if not os.path.isdir(base):
+    sys.exit(0)
+
+CAP = 8192
+md_files = []
+for root, _, files in os.walk(base):
+    for name in files:
+        if name.endswith(".md"):
+            md_files.append(os.path.join(root, name))
+md_files.sort()  # deterministic ordering for cache friendliness
+
+total = 0
+for path in md_files:
+    rel = os.path.relpath(path, base).replace(os.sep, "/")
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = f.read()
+    except (OSError, UnicodeDecodeError):
+        continue
+    chunk = f"\n=== {rel} ===\n\n{body}\n"
+    if total + len(chunk) > CAP:
+        remaining = CAP - total
+        if remaining > 0:
+            sys.stdout.write(chunk[:remaining])
+        break
+    sys.stdout.write(chunk)
+    total += len(chunk)
+PY
     )"
     if [[ -n "$SAMPLE_CONTENT" ]]; then
       SAMPLE_DOCS_REFERENCE="$SAMPLE_CONTENT"

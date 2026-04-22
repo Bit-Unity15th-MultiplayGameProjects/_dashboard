@@ -367,5 +367,19 @@ resolved_from_backlog:
 
 # 최종 지시
 
-위의 모든 규칙을 준수하여, 지금 리뷰 리포트를 생성하세요. 출력은 반드시
-`---` 로 시작해야 합니다.
+위의 모든 규칙을 준수하여, 지금 리뷰 리포트를 생성하세요.
+
+**출력 형식 체크리스트 (순서 엄수)**:
+
+1. 첫 줄: `---` (여는 fence)
+2. YAML 필드 12 개 (`project`, `date`, `commit_range`, `commit_count`,
+   `risk_level`, `tags`, `summary`, `progress_estimate`, `doc_scores`,
+   `todos`, `backlogs`, `resolved_from_backlog`)
+3. `---` (**닫는 fence — 절대 빠뜨리지 말 것. 여기가 제일 자주 놓치는 지점.**)
+4. 빈 줄 하나
+5. `# {{PROJECT_NAME}} — <스냅샷 라벨>` (본문 제목)
+6. 본문 섹션 `## 1. ~ ## 6.` (필수), `## 7.` (조건부)
+
+닫는 `---` 이 없으면 Astro 가 frontmatter 를 파싱하지 못해 빌드가 깨집니다.
+마지막 필드 (`resolved_from_backlog: [...]` 또는 항목 나열) 바로 다음 줄에
+반드시 `---` 한 줄만 단독으로 써주세요.

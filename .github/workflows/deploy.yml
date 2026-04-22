@@ -9,12 +9,13 @@ on:
       - ".gitignore"
   # 수동 트리거
   workflow_dispatch:
-  # 리포트 생성 파이프라인이 끝난 직후 자동 배포
-  # (generate-reports.yml 이 reports/ 에 새 커밋을 push하면
-  #  push 트리거가 먼저 걸릴 수 있지만, paths-ignore나 supervisor 설정 변화에
-  #  대비해 workflow_run 도 이중으로 둔다)
+  # 리포트 생성 파이프라인이 끝난 직후 자동 배포.
+  # `GITHUB_TOKEN` 으로 push 한 커밋은 다른 workflow 의 push 트리거를 발화시키지
+  # 않는 GitHub Actions 제약 때문에 (무한 루프 방지), generate-reports 의
+  # 리포트 커밋을 deploy 로 연결하는 유일한 방법이 workflow_run 체인이다.
+  # workflow 이름은 대소문자 정확히 일치해야 한다.
   workflow_run:
-    workflows: ["Generate Reports"]
+    workflows: ["generate-reports"]
     types:
       - completed
     branches: [main]
@@ -35,10 +36,12 @@ jobs:
   build:
     name: Build site
     runs-on: ubuntu-latest
-    # workflow_run 트리거일 때는 upstream 성공한 경우만 진행
+    # workflow_run 트리거일 때는 cancelled 가 아니면 진행.
+    # generate-reports 가 일부 cell 실패로 failure 상태여도, 성공한 cell 의
+    # 리포트는 이미 main 에 push 되어 있으니 배포해야 한다.
     if: >-
       github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion != 'cancelled'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

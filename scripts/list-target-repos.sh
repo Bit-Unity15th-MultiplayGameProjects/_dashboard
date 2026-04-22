@@ -61,12 +61,17 @@ fi
 
 # gh repo list 는 --limit 만큼 repo 를 가져온다. 1000 은 현재 규모에서 넉넉.
 # --json 으로 필요한 필드만 요청 → API 페이로드 최소화.
+# defaultBranchRef: 빈 repo (커밋 0개) 는 `{"name": ""}` 로 반환됨 (null 아님).
+#   REST API 는 default_branch 를 "main" placeholder 로 반환하지만 실제 브랜치는
+#   없기 때문에 check-needs-report.sh 의 `commits/main` 호출이 404 로 터진다.
+#   따라서 name 필드가 비어있지 않은 repo 만 통과시킨다.
 "$GH_CMD" repo list "$ORG" \
   --limit 1000 \
-  --json name,isArchived \
+  --json name,isArchived,defaultBranchRef \
   | jq -c --argjson ignore "$IGNORE_JSON" '
       [ .[]
         | select(.isArchived == false)
+        | select((.defaultBranchRef.name // "") != "")
         | select(.name | startswith("_") | not)
         | select(.name as $n | $ignore | index($n) | not)
         | .name

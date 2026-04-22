@@ -154,12 +154,35 @@ SAMPLE_DOCS_REFERENCE="(로컬 dry-run — _sample/docs rubric 생략. CI 에서
 SAMPLE_CACHE="${TMPDIR:-/tmp}/bit-unity15th-dashboard-cache/_sample"
 if [[ -d "$SAMPLE_CACHE/docs" ]]; then
   SAMPLE_CONTENT="$(
-    find "$SAMPLE_CACHE/docs" -name '*.md' -type f 2>/dev/null \
-      | while IFS= read -r f; do
-          printf '\n=== %s ===\n\n' "${f#"$SAMPLE_CACHE/docs/"}"
-          cat "$f"
-        done \
-      | head -c 8192
+    SAMPLE_DOCS_DIR="$SAMPLE_CACHE/docs" python3 - <<'PY'
+import os, sys
+base = os.environ.get("SAMPLE_DOCS_DIR", "")
+if not os.path.isdir(base):
+    sys.exit(0)
+CAP = 8192
+md_files = []
+for root, _, files in os.walk(base):
+    for name in files:
+        if name.endswith(".md"):
+            md_files.append(os.path.join(root, name))
+md_files.sort()
+total = 0
+for path in md_files:
+    rel = os.path.relpath(path, base).replace(os.sep, "/")
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = f.read()
+    except (OSError, UnicodeDecodeError):
+        continue
+    chunk = f"\n=== {rel} ===\n\n{body}\n"
+    if total + len(chunk) > CAP:
+        remaining = CAP - total
+        if remaining > 0:
+            sys.stdout.write(chunk[:remaining])
+        break
+    sys.stdout.write(chunk)
+    total += len(chunk)
+PY
   )"
   if [[ -n "$SAMPLE_CONTENT" ]]; then
     SAMPLE_DOCS_REFERENCE="$SAMPLE_CONTENT"
