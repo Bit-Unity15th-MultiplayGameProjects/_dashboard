@@ -1,0 +1,68 @@
+---
+/**
+ * 페이지 공용 sticky 헤더.
+ * 좌측은 페이지별로 다르게(`left` 슬롯) 채우고, 우측 메타는 `right` 슬롯.
+ * 마지막 슬롯 옆에 항상 테마 토글이 붙는다.
+ */
+interface Props {
+  /** 우측 영역 자체를 숨길지 여부 */
+  noRight?: boolean;
+}
+
+const { noRight = false } = Astro.props;
+---
+
+<header
+  style="height:52px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;"
+>
+  <slot name="left" />
+  {
+    !noRight && (
+      <div
+        style="margin-left:auto;display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+      >
+        <slot name="right" />
+        <button
+          type="button"
+          data-tweaks-toggle
+          aria-label="테마 / accent 설정"
+          title="테마 / accent 설정"
+          aria-expanded="false"
+          aria-controls="tweaks-panel"
+          style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;border:1px solid var(--border);background:var(--bg-1);color:var(--fg-2);cursor:pointer;"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10c1.38 0 2.5-1.12 2.5-2.5 0-.61-.23-1.21-.64-1.67-.08-.1-.13-.21-.13-.33 0-.28.22-.5.5-.5H16c3.31 0 6-2.69 6-6 0-4.96-4.49-9-10-9z"
+            ></path>
+            <circle cx="6.5" cy="11.5" r="1.4" fill="currentColor" stroke="none"
+            ></circle>
+            <circle cx="9.5" cy="7.5" r="1.4" fill="currentColor" stroke="none"
+            ></circle>
+            <circle cx="14.5" cy="7.5" r="1.4" fill="currentColor" stroke="none"
+            ></circle>
+            <circle cx="17.5" cy="11.5" r="1.4" fill="currentColor" stroke="none"
+            ></circle>
+          </svg>
+        </button>
+      </div>
+    )
+  }
+</header>
+
+<style>
+  [data-tweaks-toggle]:hover {
+    border-color: var(--accent) !important;
+    color: var(--fg-1) !important;
+  }
+</style>

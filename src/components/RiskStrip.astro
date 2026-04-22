@@ -1,0 +1,27 @@
+---
+/**
+ * 리포트별 risk 를 작은 사각형 dot 로 나열. 마지막 dot 는 강조.
+ */
+type Risk = "low" | "medium" | "high";
+interface Props {
+  risks: Risk[];
+}
+const { risks } = Astro.props;
+
+const dotColor = {
+  low: "var(--risk-low)",
+  medium: "var(--risk-med)",
+  high: "var(--risk-high)",
+} as const;
+---
+
+<div style="display:flex;gap:4px;align-items:center;">
+  {
+    risks.map((r, i) => (
+      <div
+        title={r}
+        style={`width:10px;height:10px;border-radius:2px;background:${dotColor[r]};opacity:${i === risks.length - 1 ? 1 : 0.6};${i === risks.length - 1 ? "border:1px solid var(--fg-1);" : ""}`}
+      />
+    ))
+  }
+</div>

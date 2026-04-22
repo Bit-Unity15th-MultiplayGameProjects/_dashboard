@@ -1,0 +1,29 @@
+---
+/**
+ * Backlog 항목이 N 개 리포트 동안 carry-over 됐는지 보여주는 배지.
+ * fresh/aging/stale 3 단계 색조.
+ */
+interface Props {
+  age: number;
+}
+const { age } = Astro.props;
+
+const tone = age >= 5 ? "stale" : age >= 3 ? "aging" : "fresh";
+const bg = `var(--age-${tone}-bg)`;
+const fg = `var(--age-${tone}-fg)`;
+---
+
+<span
+  style={`display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:2px;background:${bg};color:${fg};font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:0.04em;white-space:nowrap;`}
+  title={`${age} 개 리포트 동안 미해결`}
+>
+  <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+    <circle cx="4" cy="4" r="3" stroke="currentColor" stroke-width="1"></circle>
+    <path
+      d="M4 2.5V4L5 5"
+      stroke="currentColor"
+      stroke-width="1"
+      stroke-linecap="round"></path>
+  </svg>
+  {age}R
+</span>

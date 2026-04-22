@@ -1,0 +1,61 @@
+---
+/**
+ * 큰 값 + delta + 보조 시각화 슬롯.
+ * delta 가 number 면 +/− 자동 prefix. deltaFormat="decimal" 이면 소수점 1자리.
+ */
+interface Props {
+  label: string;
+  value: string;
+  delta?: number;
+  deltaLabel?: string;
+  deltaFormat?: "int" | "decimal";
+}
+const { label, value, delta, deltaLabel, deltaFormat = "int" } = Astro.props;
+
+const hasDelta = typeof delta === "number";
+const positive = hasDelta && (delta as number) > 0;
+const negative = hasDelta && (delta as number) < 0;
+const deltaStr = hasDelta
+  ? deltaFormat === "decimal"
+    ? (delta as number).toFixed(1)
+    : String(delta)
+  : "";
+const deltaColor = positive
+  ? "var(--risk-low)"
+  : negative
+    ? "var(--risk-high)"
+    : "var(--fg-3)";
+---
+
+<div
+  style="border:1px solid var(--border);border-radius:4px;background:var(--bg-1);padding:14px 16px;min-width:0;"
+>
+  <span
+    style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.08em;text-transform:uppercase;"
+    >{label}</span
+  >
+  <div
+    style="display:flex;align-items:baseline;gap:8px;margin-top:4px;flex-wrap:wrap;"
+  >
+    <span
+      style="font-family:var(--mono);font-size:26px;font-weight:500;letter-spacing:-0.02em;color:var(--fg-1);"
+      >{value}</span
+    >
+    {
+      hasDelta && (
+        <span
+          style={`font-family:var(--mono);font-size:11px;color:${deltaColor};`}
+        >
+          {positive ? "+" : ""}
+          {deltaStr}
+          {deltaLabel && (
+            <span style="color:var(--fg-3);margin-left:5px;">{deltaLabel}</span>
+          )}
+        </span>
+      )
+    }
+  </div>
+  <div style="margin-top:10px;">
+    <slot />
+  </div>
+</div>

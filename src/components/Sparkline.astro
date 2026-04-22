@@ -1,0 +1,59 @@
+---
+interface Props {
+  values: number[];
+  width?: number;
+  height?: number;
+  accent?: string;
+  showDots?: boolean;
+  showArea?: boolean;
+  stroke?: number;
+  /** 0..max 스케일 강제 (없으면 데이터 min/max 사용) */
+  fixedMax?: number;
+}
+
+const {
+  values,
+  width = 120,
+  height = 32,
+  accent = "var(--accent)",
+  showDots = true,
+  showArea = true,
+  stroke = 1.5,
+  fixedMax,
+} = Astro.props;
+
+const safe = values.length >= 2 ? values : [0, 0];
+const min = fixedMax !== undefined ? 0 : Math.min(...safe, 0);
+const max = fixedMax !== undefined ? fixedMax : Math.max(...safe, 1);
+const range = max - min || 1;
+const pad = 2;
+const w = width - pad * 2;
+const h = height - pad * 2;
+const pts = safe.map((v, i) => {
+  const x = pad + (i / (safe.length - 1)) * w;
+  const y = pad + h - ((v - min) / range) * h;
+  return [x, y] as const;
+});
+const d = pts
+  .map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
+  .join(" ");
+const last = pts[pts.length - 1];
+const areaD = `${d} L${last[0].toFixed(1)},${pad + h} L${pts[0][0].toFixed(1)},${pad + h} Z`;
+---
+
+<svg
+  width={width}
+  height={height}
+  style="display:block;overflow:visible;"
+  aria-hidden="true"
+>
+  {showArea && <path d={areaD} fill={accent} fill-opacity="0.08" />}
+  <path
+    d={d}
+    fill="none"
+    stroke={accent}
+    stroke-width={stroke}
+    stroke-linejoin="round"
+    stroke-linecap="round"></path>
+  {showDots && <circle cx={last[0]} cy={last[1]} r="2.5" fill={accent} />}
+</svg>

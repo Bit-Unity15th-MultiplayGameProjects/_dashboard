@@ -1,0 +1,204 @@
+---
+/**
+ * 헤더 팔레트 버튼이 토글하는 floating tweaks 패널.
+ * - theme: light / dark (html.dark 클래스 토글)
+ * - accent: 6 색 (html.accent-{name} 클래스로 --accent-raw 결정)
+ * - 상태는 localStorage 에 저장. FOUC 방지 boot 스크립트는 Layout 에 있음.
+ */
+const ACCENTS = [
+  { k: "indigo", label: "indigo" },
+  { k: "emerald", label: "emerald" },
+  { k: "amber", label: "amber" },
+  { k: "rose", label: "rose" },
+  { k: "violet", label: "violet" },
+  { k: "slate", label: "slate" },
+] as const;
+---
+
+<div
+  id="tweaks-panel"
+  data-tweaks-panel
+  hidden
+  role="dialog"
+  aria-label="테마와 accent 설정"
+  style="position:fixed;top:60px;right:24px;width:248px;background:var(--bg-1);border:1px solid var(--border);border-radius:6px;padding:14px 16px 12px;box-shadow:0 12px 32px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08);z-index:50;font-family:var(--sans);color:var(--fg-1);"
+>
+  <div
+    style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"
+  >
+    <span
+      style="font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fg-3);"
+      >tweaks</span
+    >
+    <button
+      type="button"
+      data-tweaks-close
+      aria-label="닫기"
+      style="background:transparent;border:none;color:var(--fg-3);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;border-radius:3px;"
+      >×</button
+    >
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+    <label
+      style="font-size:11px;color:var(--fg-2);font-family:var(--mono);"
+      >theme</label
+    >
+    <div
+      data-theme-seg
+      style="display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;"
+    >
+      <button
+        type="button"
+        data-theme-btn="light"
+        aria-pressed="false"
+        style="flex:1;padding:6px 8px;font-family:var(--mono);font-size:11px;background:var(--bg);border:none;cursor:pointer;color:var(--fg-2);"
+        >light</button
+      >
+      <button
+        type="button"
+        data-theme-btn="dark"
+        aria-pressed="false"
+        style="flex:1;padding:6px 8px;font-family:var(--mono);font-size:11px;background:var(--bg);border:none;cursor:pointer;color:var(--fg-2);border-left:1px solid var(--border);"
+        >dark</button
+      >
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:6px;">
+    <label
+      style="font-size:11px;color:var(--fg-2);font-family:var(--mono);"
+      >accent</label
+    >
+    <div data-accent-swatches style="display:flex;gap:6px;flex-wrap:wrap;">
+      {
+        ACCENTS.map((a) => (
+          <button
+            type="button"
+            data-accent-btn={a.k}
+            aria-label={`accent: ${a.label}`}
+            aria-pressed="false"
+            title={a.label}
+            style={`width:24px;height:24px;border-radius:4px;border:1.5px solid transparent;cursor:pointer;padding:0;background:var(--accent-${a.k});`}
+          />
+        ))
+      }
+    </div>
+    <span
+      style="font-family:var(--mono);font-size:10px;color:var(--fg-3);margin-top:2px;"
+    >
+      progress bar / 차트 / hover outline 에 반영
+    </span>
+  </div>
+</div>
+
+<style>
+  [data-accent-btn][aria-pressed="true"] {
+    border-color: var(--fg-1) !important;
+    box-shadow: 0 0 0 2px var(--bg-1);
+  }
+  [data-theme-btn][aria-pressed="true"] {
+    background: var(--bg-2) !important;
+    color: var(--fg-1) !important;
+  }
+</style>
+
+<script is:inline>
+  (function () {
+    const root = document.documentElement;
+    const panel = document.getElementById("tweaks-panel");
+    if (!panel) return;
+
+    const ACCENTS = ["indigo", "emerald", "amber", "rose", "violet", "slate"];
+
+    function getTheme() {
+      return root.classList.contains("dark") ? "dark" : "light";
+    }
+    function getAccent() {
+      for (const a of ACCENTS) if (root.classList.contains("accent-" + a)) return a;
+      return "indigo";
+    }
+
+    function syncPressed() {
+      const theme = getTheme();
+      document.querySelectorAll("[data-theme-btn]").forEach((b) => {
+        b.setAttribute(
+          "aria-pressed",
+          b.getAttribute("data-theme-btn") === theme ? "true" : "false",
+        );
+      });
+      const accent = getAccent();
+      document.querySelectorAll("[data-accent-btn]").forEach((b) => {
+        b.setAttribute(
+          "aria-pressed",
+          b.getAttribute("data-accent-btn") === accent ? "true" : "false",
+        );
+      });
+    }
+
+    function setTheme(t) {
+      if (t === "dark") root.classList.add("dark");
+      else root.classList.remove("dark");
+      try {
+        localStorage.setItem("theme", t);
+      } catch (e) {}
+      syncPressed();
+    }
+    function setAccent(a) {
+      ACCENTS.forEach((x) => root.classList.remove("accent-" + x));
+      root.classList.add("accent-" + a);
+      try {
+        localStorage.setItem("accent", a);
+      } catch (e) {}
+      syncPressed();
+    }
+
+    function open() {
+      panel.hidden = false;
+      const trigger = document.querySelector("[data-tweaks-toggle]");
+      if (trigger) trigger.setAttribute("aria-expanded", "true");
+      syncPressed();
+    }
+    function close() {
+      panel.hidden = true;
+      const trigger = document.querySelector("[data-tweaks-toggle]");
+      if (trigger) trigger.setAttribute("aria-expanded", "false");
+    }
+    function toggle() {
+      panel.hidden ? open() : close();
+    }
+
+    document.addEventListener("click", (e) => {
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t) return;
+      if (t.closest("[data-tweaks-toggle]")) {
+        e.stopPropagation();
+        toggle();
+        return;
+      }
+      if (t.closest("[data-tweaks-close]")) {
+        close();
+        return;
+      }
+      const themeBtn = t.closest("[data-theme-btn]");
+      if (themeBtn) {
+        setTheme(themeBtn.getAttribute("data-theme-btn"));
+        return;
+      }
+      const accentBtn = t.closest("[data-accent-btn]");
+      if (accentBtn) {
+        setAccent(accentBtn.getAttribute("data-accent-btn"));
+        return;
+      }
+      // outside click
+      if (!panel.hidden && !t.closest("[data-tweaks-panel]")) close();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !panel.hidden) close();
+    });
+
+    // 첫 렌더 — 현재 클래스 상태에 맞게 pressed 동기화
+    syncPressed();
+  })();
+</script>

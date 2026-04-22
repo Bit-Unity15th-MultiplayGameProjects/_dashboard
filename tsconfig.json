@@ -1,7 +1,7 @@
 {
   "extends": "astro/tsconfigs/strict",
   "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist"],
+  "exclude": ["dist", "claude-design-bundle"],
   "compilerOptions": {
     "strict": true,
     "strictNullChecks": true,

@@ -1,0 +1,36 @@
+---
+interface Props {
+  scores: { design: number; technical: number; spec: number };
+}
+const { scores } = Astro.props;
+
+const items = [
+  { key: "design" as const, label: "Design" },
+  { key: "technical" as const, label: "Technical" },
+  { key: "spec" as const, label: "Spec" },
+];
+---
+
+<div style="display:flex;flex-direction:column;gap:8px;">
+  {
+    items.map((it) => (
+      <div
+        style="display:grid;grid-template-columns:70px 1fr 36px;align-items:center;gap:10px;"
+      >
+        <span style="font-size:12px;color:var(--fg-2);">{it.label}</span>
+        <div
+          style="height:4px;background:var(--bar-bg);border-radius:1px;overflow:hidden;"
+        >
+          <div
+            style={`width:${(scores[it.key] / 10) * 100}%;height:100%;background:var(--accent);`}
+          />
+        </div>
+        <span
+          style="font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;"
+        >
+          {scores[it.key]}/10
+        </span>
+      </div>
+    ))
+  }
+</div>

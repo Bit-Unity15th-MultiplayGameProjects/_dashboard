@@ -1,175 +1,127 @@
 ---
+import AgeBadge from "./AgeBadge.astro";
+import type { BacklogItemWithAge, ResolvedItem } from "../lib/reports";
+
 /**
- * Backlog 이력 팝업.
- * 트리거 버튼 + 네이티브 `<dialog>` + backdrop 클릭/ESC 닫기.
- *
- * 프로젝트 페이지당 1 인스턴스만 배치할 것 (ID 충돌 방지).
+ * Backlog 이력 모달.
+ * - 네이티브 `<dialog>` 사용 (focus trap / ESC / backdrop 자동).
+ * - 상단: 현재 carry-over (latest report 의 backlog + age)
+ * - 하단: 누적 resolved 목록
  */
-interface HistoryEntry {
-  date: string; // ISO
-  slug: string;
-  backlogs: string[];
-  resolved: string[];
-  summary: string;
-}
-
 interface Props {
-  history: HistoryEntry[];
-  projectPath: string; // 리포트 링크 base (예: "/_dashboard/<project>")
+  project: string;
+  carryOver: BacklogItemWithAge[];
+  resolved: ResolvedItem[];
 }
-
-const { history, projectPath } = Astro.props;
+const { project, carryOver, resolved } = Astro.props;
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("ko-KR", {
+  return new Date(iso).toLocaleDateString("ko-KR", {
     timeZone: "Asia/Seoul",
-    dateStyle: "medium",
-    timeStyle: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
-const totalBacklogs = history.reduce((n, h) => n + h.backlogs.length, 0);
-const totalResolved = history.reduce((n, h) => n + h.resolved.length, 0);
+const carrySorted = [...carryOver].sort((a, b) => b.age - a.age);
 ---
-
-<section class="mb-6">
-  <button
-    type="button"
-    data-open-backlog
-    class="w-full group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-400 dark:hover:border-slate-600 px-5 py-4 text-left transition flex items-center justify-between gap-4"
-  >
-    <div class="min-w-0">
-      <div
-        class="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider group-hover:text-blue-600 dark:group-hover:text-blue-400"
-      >
-        Backlog History
-      </div>
-      <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        리포트 {history.length}건 · backlog 누적 {totalBacklogs} · 해결 누적 {
-          totalResolved
-        }
-      </div>
-    </div>
-    <svg
-      class="w-5 h-5 text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 shrink-0"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-    >
-      <path
-        d="M9 18l6-6-6-6"
-        stroke-linecap="round"
-        stroke-linejoin="round"></path>
-    </svg>
-  </button>
-</section>
 
 <dialog
   id="backlog-history-dialog"
-  class="w-[min(92vw,48rem)] max-h-[min(85vh,48rem)] rounded-xl p-0 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 backdrop:bg-slate-900/60 backdrop:backdrop-blur-sm shadow-xl border border-slate-200 dark:border-slate-800"
+  style="width:min(92vw, 640px);max-height:80vh;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--bg-1);color:var(--fg-1);font-family:var(--sans);"
 >
   <div
-    class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-10"
+    style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-1);"
   >
     <div>
-      <h2
-        class="text-base font-semibold text-slate-900 dark:text-slate-100"
+      <h3
+        style="margin:0;font-size:14px;font-weight:600;color:var(--fg-1);"
       >
         Backlog History
-      </h2>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-        리포트별 backlog · 해결 이력
+      </h3>
+      <p
+        style="margin:2px 0 0;font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+      >
+        {project} · 누적 {carryOver.length} · 해결 {resolved.length}
       </p>
     </div>
     <button
       type="button"
       data-close-backlog
       aria-label="닫기"
-      class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400"
-    >
-      <svg
-        class="w-4 h-4"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"></path>
-      </svg>
-    </button>
+      style="margin-left:auto;background:transparent;border:none;font-family:var(--mono);font-size:18px;color:var(--fg-3);cursor:pointer;padding:4px 8px;border-radius:3px;"
+    >×</button>
   </div>
 
-  <div class="px-5 py-4 overflow-y-auto">
+  <div style="padding:16px 20px;overflow-y:auto;max-height:calc(80vh - 64px);">
+    <div style="margin-bottom:18px;">
+      <span
+        style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.08em;text-transform:uppercase;"
+        >carry-over · {carryOver.length}</span
+      >
+      {
+        carrySorted.length === 0 ? (
+          <p
+            style="margin:8px 0 0;font-size:12.5px;color:var(--fg-3);font-style:italic;"
+          >
+            현재 미해결 backlog 가 없습니다.
+          </p>
+        ) : (
+          <ul style="margin:8px 0 0;padding:0;list-style:none;">
+            {carrySorted.map((b) => (
+              <li
+                style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--border-subtle);"
+              >
+                <span style="font-size:12.5px;line-height:1.55;color:var(--fg-1);">
+                  {b.text}
+                  <span
+                    style="display:block;font-family:var(--mono);font-size:10px;color:var(--fg-3);margin-top:2px;"
+                  >
+                    first · {formatDate(b.firstSeen)}
+                  </span>
+                </span>
+                <AgeBadge age={b.age} />
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </div>
+
     {
-      history.length === 0 ? (
-        <p class="text-sm text-slate-500 dark:text-slate-400 py-12 text-center">
-          아직 이력이 없습니다.
-        </p>
-      ) : (
-        <ol class="space-y-6">
-          {history.map((h) => (
-            <li class="border-l-2 border-slate-200 dark:border-slate-800 pl-4">
-              <div class="flex items-baseline justify-between mb-2 gap-3">
-                <a
-                  href={`${projectPath}/${h.slug}/`}
-                  class="text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400"
-                >
-                  {formatDate(h.date)}
-                </a>
-              </div>
-              {h.summary && (
-                <p class="text-xs text-slate-600 dark:text-slate-400 mb-3 line-clamp-2">
-                  {h.summary}
-                </p>
-              )}
-              {h.resolved.length > 0 && (
-                <div class="mb-3">
-                  <div class="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1.5">
-                    해결 ({h.resolved.length})
-                  </div>
-                  <ul class="space-y-1 text-xs text-slate-700 dark:text-slate-300">
-                    {h.resolved.map((r) => (
-                      <li class="flex items-start gap-2">
-                        <span class="text-emerald-500 dark:text-emerald-400 shrink-0 font-bold">
-                          ✓
-                        </span>
-                        <span class="leading-relaxed">{r}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {h.backlogs.length > 0 ? (
-                <div>
-                  <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                    Backlog ({h.backlogs.length})
-                  </div>
-                  <ul class="space-y-1 text-xs text-slate-700 dark:text-slate-300">
-                    {h.backlogs.map((b) => (
-                      <li class="flex items-start gap-2">
-                        <span class="text-slate-400 dark:text-slate-500 shrink-0">
-                          ·
-                        </span>
-                        <span class="leading-relaxed">{b}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div class="text-[11px] text-slate-500 dark:text-slate-400 italic">
-                  이 시점에 기록된 backlog 없음.
-                </div>
-              )}
-            </li>
-          ))}
-        </ol>
+      resolved.length > 0 && (
+        <div>
+          <span
+            style="font-family:var(--mono);font-size:10px;color:var(--risk-low);letter-spacing:0.08em;text-transform:uppercase;"
+          >
+            ✓ resolved · {resolved.length}
+          </span>
+          <ul style="margin:8px 0 0;padding:0;list-style:none;">
+            {resolved.map((r) => (
+              <li
+                style="padding:10px 0;border-bottom:1px dashed var(--border-subtle);font-size:12.5px;line-height:1.55;color:var(--fg-2);display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;"
+              >
+                <span style="color:var(--risk-low);">✓</span>
+                <span>{r.text}</span>
+                <span style="font-family:var(--mono);font-size:10px;color:var(--fg-3);">
+                  {formatDate(r.resolvedDate)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )
     }
   </div>
 </dialog>
+
+<style is:global>
+  dialog#backlog-history-dialog::backdrop {
+    background: rgba(10, 10, 14, 0.6);
+    backdrop-filter: blur(2px);
+  }
+</style>
 
 <script is:inline>
   (function () {
@@ -177,29 +129,29 @@ const totalResolved = history.reduce((n, h) => n + h.resolved.length, 0);
     if (!dialog) return;
 
     function open() {
-      if (typeof dialog.showModal === "function") {
-        dialog.showModal();
-      } else {
-        dialog.setAttribute("open", "");
-      }
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
     }
     function close() {
-      if (typeof dialog.close === "function") {
-        dialog.close();
-      } else {
-        dialog.removeAttribute("open");
-      }
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
     }
 
-    document.querySelectorAll("[data-open-backlog]").forEach((btn) => {
-      btn.addEventListener("click", open);
-    });
-    document.querySelectorAll("[data-close-backlog]").forEach((btn) => {
-      btn.addEventListener("click", close);
-    });
-    // backdrop 클릭 닫기 (<dialog> 자체 클릭은 backdrop 에서만 발생)
+    document
+      .querySelectorAll("[data-open-backlog]")
+      .forEach((btn) => btn.addEventListener("click", open));
+    document
+      .querySelectorAll("[data-close-backlog]")
+      .forEach((btn) => btn.addEventListener("click", close));
+    // backdrop click closes
     dialog.addEventListener("click", (e) => {
-      if (e.target === dialog) close();
+      const rect = dialog.getBoundingClientRect();
+      const inside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!inside) close();
     });
   })();
 </script>

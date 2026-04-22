@@ -1,0 +1,41 @@
+---
+interface Props {
+  value: number;
+  max?: number;
+  height?: number;
+  showLabel?: boolean;
+  accent?: string;
+}
+
+const {
+  value,
+  max = 100,
+  height = 6,
+  showLabel = false,
+  accent = "var(--accent)",
+} = Astro.props;
+
+const pct = Math.max(0, Math.min(100, (value / max) * 100));
+---
+
+<div
+  style="display:flex;align-items:center;gap:10px;width:100%;"
+>
+  <div
+    style={`flex:1;height:${height}px;border-radius:2px;background:var(--bar-bg);overflow:hidden;position:relative;`}
+  >
+    <div
+      style={`width:${pct}%;height:100%;background:${accent};transition:width .6s cubic-bezier(.2,.8,.2,1);`}
+    >
+    </div>
+  </div>
+  {
+    showLabel && (
+      <span
+        style="font-family:var(--mono);font-size:11px;color:var(--fg-2);min-width:34px;text-align:right;"
+      >
+        {value}%
+      </span>
+    )
+  }
+</div>

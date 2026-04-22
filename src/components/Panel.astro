@@ -1,0 +1,36 @@
+---
+interface Props {
+  title?: string;
+  note?: string;
+  pad?: number;
+}
+const { title, note, pad = 16 } = Astro.props;
+---
+
+<div
+  style={`border:1px solid var(--border);border-radius:4px;background:var(--bg-1);padding:${pad}px;`}
+>
+  {
+    (title || note) && (
+      <div
+        style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;flex-wrap:wrap;"
+      >
+        {title && (
+          <h3
+            style="font-size:12px;font-weight:600;margin:0;letter-spacing:0.02em;color:var(--fg-1);"
+          >
+            {title}
+          </h3>
+        )}
+        {note && (
+          <span
+            style="font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+          >
+            {note}
+          </span>
+        )}
+      </div>
+    )
+  }
+  <slot />
+</div>

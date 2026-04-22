@@ -1,0 +1,153 @@
+---
+/**
+ * 다중 시리즈 라인 차트 — doc_scores (design/technical/spec) 등.
+ */
+interface Snapshot {
+  date: string;
+  values: Record<string, number>;
+}
+interface Series {
+  key: string;
+  label: string;
+  color: string;
+}
+interface Props {
+  data: Snapshot[];
+  series: Series[];
+  width?: number;
+  height?: number;
+  maxY?: number;
+}
+
+const { data, series, width = 360, height = 200, maxY = 10 } = Astro.props;
+
+const padL = 30,
+  padR = 12,
+  padT = 22,
+  padB = 28;
+const w = width - padL - padR;
+const h = height - padT - padB;
+
+const safe =
+  data.length >= 2 ? data : data.length === 1 ? [data[0], data[0]] : [];
+const xs = safe.map(
+  (_, i) => padL + (i / Math.max(1, safe.length - 1)) * w,
+);
+const y = (v: number) => padT + h - (v / maxY) * h;
+
+const gridY = [0, 5, 10];
+
+const firstLabel = safe.length ? safe[0].date.slice(5, 10) : "";
+const lastLabel = safe.length ? safe[safe.length - 1].date.slice(5, 10) : "";
+
+interface SeriesRender {
+  key: string;
+  label: string;
+  color: string;
+  d: string;
+  pts: Array<{ x: number; y: number }>;
+}
+
+const seriesRender: SeriesRender[] = series.map((s) => {
+  const pts = safe.map((snap, i) => ({ x: xs[i], y: y(snap.values[s.key] ?? 0) }));
+  const d = pts
+    .map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(" ");
+  return { ...s, d, pts };
+});
+---
+
+{
+  safe.length === 0 ? (
+    <div
+      style={`width:${width}px;height:${height}px;display:flex;align-items:center;justify-content:center;color:var(--fg-3);font-family:var(--mono);font-size:11px;`}
+    >
+      데이터 부족
+    </div>
+  ) : (
+    <svg
+      width={width}
+      height={height}
+      style="display:block;font-family:var(--mono);"
+      aria-hidden="true"
+    >
+      {gridY.map((g) => (
+        <g>
+          <line
+            x1={padL}
+            x2={width - padR}
+            y1={y(g)}
+            y2={y(g)}
+            stroke="var(--border-subtle)"
+            stroke-dasharray="2 3"
+          />
+          <text
+            x={padL - 6}
+            y={y(g) + 3}
+            text-anchor="end"
+            font-size="9"
+            fill="var(--fg-3)"
+          >
+            {g}
+          </text>
+        </g>
+      ))}
+      {seriesRender.map((s) => (
+        <g>
+          <path
+            d={s.d}
+            fill="none"
+            stroke={s.color}
+            stroke-width="1.5"
+            stroke-linejoin="round"
+          />
+          {s.pts.map((p) => (
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r="2"
+              fill="var(--bg-1)"
+              stroke={s.color}
+              stroke-width="1.2"
+            />
+          ))}
+        </g>
+      ))}
+      <g transform={`translate(${padL}, 10)`}>
+        {series.map((s, i) => (
+          <g transform={`translate(${i * 78}, 0)`}>
+            <line
+              x1="0"
+              x2="12"
+              y1="4"
+              y2="4"
+              stroke={s.color}
+              stroke-width="1.5"
+            />
+            <text x="16" y="7" font-size="10" fill="var(--fg-2)">
+              {s.label}
+            </text>
+          </g>
+        ))}
+      </g>
+      <text
+        x={xs[0]}
+        y={height - 10}
+        font-size="9"
+        fill="var(--fg-3)"
+        text-anchor="start"
+      >
+        {firstLabel}
+      </text>
+      <text
+        x={xs[xs.length - 1]}
+        y={height - 10}
+        font-size="9"
+        fill="var(--fg-3)"
+        text-anchor="end"
+      >
+        {lastLabel}
+      </text>
+    </svg>
+  )
+}

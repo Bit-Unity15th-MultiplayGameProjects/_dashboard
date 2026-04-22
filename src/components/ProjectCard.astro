@@ -1,101 +1,112 @@
 ---
 import RiskBadge from "./RiskBadge.astro";
+import RiskStrip from "./RiskStrip.astro";
+import Sparkline from "./Sparkline.astro";
+import ProgressBar from "./ProgressBar.astro";
+import Tag from "./Tag.astro";
+import type { ChartSnapshot, Risk } from "../lib/reports";
 
 interface Props {
   project: string;
   href: string;
-  date: string; // ISO string
   summary: string;
-  risk: "low" | "medium" | "high";
+  risk: Risk;
   tags: string[];
-  reportCount: number;
-  progress: number; // 0-100
+  snapshots: ChartSnapshot[]; // chronological (oldest first)
 }
 
-const { project, href, date, summary, risk, tags, reportCount, progress } =
-  Astro.props;
+const { project, href, summary, risk, tags, snapshots } = Astro.props;
 
-const d = new Date(date);
-const dateLabel = d.toLocaleDateString("ko-KR", {
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = Math.max(0, Math.floor((now - then) / 1000));
-  if (diff < 60) return "방금 전";
-  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}일 전`;
-  return dateLabel;
-}
-
-function progressColor(p: number): string {
-  if (p >= 80) return "bg-emerald-500 dark:bg-emerald-400";
-  if (p >= 50) return "bg-blue-500 dark:bg-blue-400";
-  if (p >= 25) return "bg-amber-500 dark:bg-amber-400";
-  return "bg-rose-500 dark:bg-rose-400";
-}
-
-const relLabel = relativeTime(date);
+const first = snapshots[0];
+const last = snapshots[snapshots.length - 1];
+const delta = last && first ? last.progress - first.progress : 0;
+const progressSeries = snapshots.map((s) => s.progress);
+const risks = snapshots.map((s) => s.risk);
+const deltaColor =
+  delta > 0 ? "var(--risk-low)" : delta < 0 ? "var(--risk-high)" : "var(--fg-3)";
+const deltaLabel =
+  delta > 0 ? `+${delta}` : delta === 0 ? "—" : String(delta);
 ---
 
 <a
   href={href}
-  class="group block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:border-slate-400 dark:hover:border-slate-600 hover:shadow-sm transition"
+  data-risk={risk}
+  data-card
+  class="project-card"
+  style="display:flex;flex-direction:column;gap:12px;text-decoration:none;color:inherit;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);padding:16px 18px 14px;font-family:var(--sans);transition:border-color .12s, box-shadow .12s;"
 >
-  <div class="flex items-start justify-between gap-3">
-    <div class="min-w-0">
-      <h3
-        class="font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400"
-      >
-        {project}
-      </h3>
-      <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-        {relLabel} · 리포트 {reportCount}건
-      </div>
-    </div>
-    <RiskBadge level={risk} />
-  </div>
-
-  <p class="mt-3 text-sm text-slate-700 dark:text-slate-300 line-clamp-2">
-    {summary}
-  </p>
-
-  <div class="mt-4">
-    <div class="flex items-center justify-between mb-1">
-      <span
-        class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
-      >
-        진행도
-      </span>
-      <span
-        class="text-[11px] font-mono tabular-nums text-slate-700 dark:text-slate-300"
-      >
-        {progress}%
-      </span>
-    </div>
-    <div class="h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+  <div style="display:flex;align-items:flex-start;gap:10px;">
+    <div style="flex:1;min-width:0;">
       <div
-        class={`h-full ${progressColor(progress)}`}
-        style={`width: ${Math.max(0, Math.min(100, progress))}%`}
+        style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;"
       >
+        <span
+          style="font-family:var(--mono);font-size:14px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-1);"
+        >
+          {project}
+        </span>
+        <RiskBadge level={risk} />
       </div>
+      <p
+        style="margin:0;font-size:12.5px;color:var(--fg-2);line-height:1.55;"
+      >
+        {summary}
+      </p>
     </div>
   </div>
 
-  {
-    tags.length > 0 && (
-      <div class="mt-4 flex flex-wrap gap-1.5">
-        {tags.slice(0, 4).map((t) => (
-          <span class="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] px-2 py-0.5">
-            #{t}
-          </span>
-        ))}
+  <div
+    style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;"
+  >
+    <div>
+      <div
+        style="display:flex;align-items:baseline;gap:6px;margin-bottom:5px;flex-wrap:wrap;"
+      >
+        <span
+          style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.06em;text-transform:uppercase;"
+          >progress</span
+        >
+        <span
+          style="font-family:var(--mono);font-size:16px;font-weight:500;color:var(--fg-1);"
+        >
+          {last ? `${last.progress}%` : "—"}
+        </span>
+        {
+          snapshots.length >= 2 && (
+            <span
+              style={`font-family:var(--mono);font-size:11px;color:${deltaColor};`}
+            >
+              {deltaLabel} pts
+            </span>
+          )
+        }
       </div>
-    )
-  }
+      {last && <ProgressBar value={last.progress} />}
+    </div>
+    {snapshots.length >= 2 && <Sparkline values={progressSeries} width={110} height={34} />}
+  </div>
+
+  <div
+    style="display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;"
+  >
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span
+        style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.06em;text-transform:uppercase;"
+        >risk · {snapshots.length}R</span
+      >
+      <RiskStrip risks={risks} />
+    </div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+      {tags.slice(0, 3).map((t) => <Tag>{t}</Tag>)}
+    </div>
+  </div>
 </a>
+
+<style>
+  .project-card:hover {
+    border-color: var(--accent) !important;
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.06),
+      0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+</style>

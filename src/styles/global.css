@@ -2,89 +2,229 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────
+   design tokens (claude-design-bundle handoff)
+   - 단일 토큰 시스템: Tailwind 의 slate 팔레트 대신 OKLCH 기반.
+   - light / dark 는 html.dark 클래스로 토글 (FOUC 방지 스크립트 호환).
+   ──────────────────────────────────────────────────────────────────── */
+
+:root {
+  --sans: "Noto Sans KR", "Pretendard", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* accent palette — light variants. dark mode 에서 html.dark 가 덮어씀 */
+  --accent-indigo: oklch(0.52 0.18 265);
+  --accent-emerald: oklch(0.58 0.14 155);
+  --accent-amber: oklch(0.65 0.16 60);
+  --accent-rose: oklch(0.6 0.19 15);
+  --accent-violet: oklch(0.54 0.2 295);
+  --accent-slate: oklch(0.42 0.02 260);
+
+  /* 기본 raw accent — html 에 .accent-* 클래스가 덮어씀 */
+  --accent-raw: var(--accent-indigo);
+
+  /* light theme */
+  --bg: oklch(0.985 0.003 90);
+  --bg-1: oklch(0.998 0.002 90);
+  --bg-2: oklch(0.965 0.005 90);
+  --fg-1: oklch(0.22 0.01 260);
+  --fg-2: oklch(0.45 0.01 260);
+  --fg-3: oklch(0.62 0.01 260);
+  --border: oklch(0.9 0.005 90);
+  --border-subtle: oklch(0.94 0.004 90);
+  --bar-bg: oklch(0.93 0.006 90);
+  --tag-bg: oklch(0.975 0.004 90);
+  --badge-bg: oklch(0.98 0.003 90);
+  --accent: var(--accent-raw);
+  --accent-fg: oklch(0.998 0.002 90);
+  --risk-low: oklch(0.62 0.14 155);
+  --risk-med: oklch(0.72 0.15 70);
+  --risk-high: oklch(0.58 0.18 25);
+  --series-1: oklch(0.55 0.14 255);
+  --series-2: oklch(0.62 0.15 165);
+  --series-3: oklch(0.65 0.15 50);
+  --age-fresh-bg: oklch(0.95 0.02 155);
+  --age-fresh-fg: oklch(0.42 0.12 155);
+  --age-aging-bg: oklch(0.95 0.03 70);
+  --age-aging-fg: oklch(0.46 0.14 60);
+  --age-stale-bg: oklch(0.95 0.03 25);
+  --age-stale-fg: oklch(0.42 0.16 25);
+}
+
+html.dark {
+  /* dark 에서는 같은 hue 의 lightness 만 살짝 올려 가독성 확보 */
+  --accent-indigo: oklch(0.66 0.18 265);
+  --accent-emerald: oklch(0.74 0.16 155);
+  --accent-amber: oklch(0.78 0.16 60);
+  --accent-rose: oklch(0.72 0.19 15);
+  --accent-violet: oklch(0.7 0.2 295);
+  --accent-slate: oklch(0.62 0.02 260);
+
+  --bg: oklch(0.17 0.008 260);
+  --bg-1: oklch(0.2 0.008 260);
+  --bg-2: oklch(0.24 0.008 260);
+  --fg-1: oklch(0.95 0.005 260);
+  --fg-2: oklch(0.72 0.008 260);
+  --fg-3: oklch(0.52 0.008 260);
+  --border: oklch(0.3 0.008 260);
+  --border-subtle: oklch(0.26 0.008 260);
+  --bar-bg: oklch(0.27 0.008 260);
+  --tag-bg: oklch(0.22 0.008 260);
+  --badge-bg: oklch(0.22 0.008 260);
+  --accent-fg: oklch(0.17 0.008 260);
+  --risk-low: oklch(0.74 0.16 155);
+  --risk-med: oklch(0.78 0.16 70);
+  --risk-high: oklch(0.72 0.19 25);
+  --series-1: oklch(0.72 0.14 255);
+  --series-2: oklch(0.76 0.15 165);
+  --series-3: oklch(0.78 0.15 50);
+  --age-fresh-bg: oklch(0.28 0.04 155);
+  --age-fresh-fg: oklch(0.82 0.14 155);
+  --age-aging-bg: oklch(0.3 0.05 70);
+  --age-aging-fg: oklch(0.85 0.14 70);
+  --age-stale-bg: oklch(0.3 0.06 25);
+  --age-stale-fg: oklch(0.82 0.16 25);
+}
+
+/* accent class 토글 — html.accent-{name} 가 --accent-raw 를 덮어씀.
+   같은 클래스가 light / dark 모두에 적용되며, 위 정의한 같은 이름의
+   hue-별 var() 가 자동으로 light/dark 변형을 골라옴. */
+html.accent-indigo  { --accent-raw: var(--accent-indigo); }
+html.accent-emerald { --accent-raw: var(--accent-emerald); }
+html.accent-amber   { --accent-raw: var(--accent-amber); }
+html.accent-rose    { --accent-raw: var(--accent-rose); }
+html.accent-violet  { --accent-raw: var(--accent-violet); }
+html.accent-slate   { --accent-raw: var(--accent-slate); }
+
 @layer base {
   html {
     color-scheme: light dark;
+    font-family: var(--sans);
   }
-
   html.dark {
     color-scheme: dark;
   }
-
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    background: var(--bg);
+    color: var(--fg-1);
+    margin: 0;
+    min-height: 100vh;
   }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font-family: var(--sans);
+    color: inherit;
+  }
+}
 
-  html.dark body {
-    @apply bg-slate-950 text-slate-100;
+@keyframes dash-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
   }
 }
 
 /* Markdown body styling — used on report detail pages */
 .report-prose {
-  @apply text-slate-800 leading-relaxed;
+  color: var(--fg-1);
+  font-family: var(--sans);
+  line-height: 1.75;
+  font-size: 14px;
 }
-html.dark .report-prose {
-  @apply text-slate-200;
+.report-prose > :first-child {
+  margin-top: 0;
 }
 .report-prose h1 {
-  @apply text-2xl font-bold mt-8 mb-4 text-slate-900;
-}
-html.dark .report-prose h1 {
-  @apply text-slate-50;
+  font-size: 22px;
+  font-weight: 600;
+  margin: 32px 0 14px;
+  color: var(--fg-1);
+  letter-spacing: -0.02em;
 }
 .report-prose h2 {
-  @apply text-xl font-semibold mt-8 mb-3 text-slate-900 border-b border-slate-200 pb-2;
-}
-html.dark .report-prose h2 {
-  @apply text-slate-50 border-slate-800;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 28px 0 12px;
+  color: var(--fg-1);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  letter-spacing: -0.01em;
 }
 .report-prose h3 {
-  @apply text-lg font-semibold mt-6 mb-2;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 22px 0 8px;
+  color: var(--fg-1);
 }
 .report-prose p {
-  @apply my-4;
+  margin: 12px 0;
 }
 .report-prose ul,
 .report-prose ol {
-  @apply my-4 pl-6;
+  margin: 12px 0;
+  padding-left: 22px;
 }
 .report-prose ul {
-  @apply list-disc;
+  list-style: disc;
 }
 .report-prose ol {
-  @apply list-decimal;
+  list-style: decimal;
 }
 .report-prose li {
-  @apply my-1;
+  margin: 5px 0;
 }
 .report-prose code {
-  @apply px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 text-sm font-mono;
-}
-html.dark .report-prose code {
-  @apply bg-slate-800 text-slate-100;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border: 1px solid var(--border-subtle);
 }
 .report-prose pre {
-  @apply my-4 p-4 rounded-lg bg-slate-900 text-slate-100 overflow-x-auto text-sm;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  overflow-x: auto;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
 }
 .report-prose pre code {
-  @apply bg-transparent text-inherit p-0;
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--fg-1);
 }
 .report-prose strong {
-  @apply font-semibold text-slate-900;
-}
-html.dark .report-prose strong {
-  @apply text-slate-50;
+  font-weight: 600;
+  color: var(--fg-1);
 }
 .report-prose a {
-  @apply text-blue-600 hover:text-blue-800 underline;
-}
-html.dark .report-prose a {
-  @apply text-blue-400 hover:text-blue-300;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .report-prose blockquote {
-  @apply border-l-4 border-slate-300 pl-4 my-4 italic text-slate-600;
+  border-left: 3px solid var(--border);
+  padding-left: 14px;
+  margin: 14px 0;
+  color: var(--fg-2);
+  font-style: italic;
 }
-html.dark .report-prose blockquote {
-  @apply border-slate-700 text-slate-400;
+.report-prose hr {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 22px 0;
 }

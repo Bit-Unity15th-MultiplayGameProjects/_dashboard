@@ -1,0 +1,40 @@
+---
+/**
+ * Home 의 risk filter 탭. data-filter 값으로 클라이언트 JS 와 연결.
+ */
+interface Props {
+  counts: { all: number; low: number; medium: number; high: number };
+}
+const { counts } = Astro.props;
+
+const opts = [
+  { k: "all", label: "all", dot: undefined as string | undefined },
+  { k: "low", label: "low", dot: "var(--risk-low)" },
+  { k: "medium", label: "med", dot: "var(--risk-med)" },
+  { k: "high", label: "high", dot: "var(--risk-high)" },
+] as const;
+---
+
+<div
+  data-filter-tabs
+  style="display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;"
+>
+  {
+    opts.map((o, i) => (
+      <button
+        type="button"
+        data-filter-btn={o.k}
+        aria-pressed={o.k === "all" ? "true" : "false"}
+        style={`padding:5px 10px;font-size:11px;font-family:var(--mono);border:none;cursor:pointer;background:${o.k === "all" ? "var(--bg-2)" : "var(--bg)"};color:${o.k === "all" ? "var(--fg-1)" : "var(--fg-2)"};border-left:${i === 0 ? "none" : "1px solid var(--border)"};display:inline-flex;align-items:center;gap:5px;`}
+      >
+        {o.dot && (
+          <span
+            style={`width:6px;height:6px;border-radius:50%;background:${o.dot};`}
+          />
+        )}
+        {o.label}
+        <span style="color:var(--fg-3);">({counts[o.k]})</span>
+      </button>
+    ))
+  }
+</div>

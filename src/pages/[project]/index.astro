@@ -1,11 +1,26 @@
 ---
 import type { GetStaticPaths } from "astro";
 import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+import Footer from "../../components/Footer.astro";
 import RiskBadge from "../../components/RiskBadge.astro";
+import RiskStrip from "../../components/RiskStrip.astro";
+import Tag from "../../components/Tag.astro";
+import Panel from "../../components/Panel.astro";
+import MetricCard from "../../components/MetricCard.astro";
 import ProgressPanel from "../../components/ProgressPanel.astro";
-import TodoList from "../../components/TodoList.astro";
+import StepChart from "../../components/StepChart.astro";
+import MultiLineChart from "../../components/MultiLineChart.astro";
+import SmallMultiple from "../../components/SmallMultiple.astro";
+import AgeBadge from "../../components/AgeBadge.astro";
 import BacklogHistoryDialog from "../../components/BacklogHistoryDialog.astro";
-import { getProjectSummaries, type ProjectSummary } from "../../lib/reports";
+import {
+  getProjectSummaries,
+  chronologicalSnapshots,
+  backlogWithAges,
+  resolvedHistory,
+  type ProjectSummary,
+} from "../../lib/reports";
 
 export const getStaticPaths = (async () => {
   const projects = await getProjectSummaries();
@@ -27,104 +42,392 @@ const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
 
 const latest = reports[0]!;
 const latestData = latest.entry.data;
+const snapshots = chronologicalSnapshots(summary);
+const first = snapshots[0];
+const last = snapshots[snapshots.length - 1];
 
-const historyEntries = reports.map((r) => ({
-  date: r.entry.data.date,
-  slug: r.slug,
-  backlogs: r.entry.data.backlogs ?? [],
-  resolved: r.entry.data.resolved_from_backlog ?? [],
-  summary: r.entry.data.summary,
-}));
+const carryOver = backlogWithAges(summary);
+const resolved = resolvedHistory(summary);
+const todos = latestData.todos ?? [];
+
+const docAvgLatest = (last.design + last.technical + last.spec) / 3;
+const docAvgFirst = (first.design + first.technical + first.spec) / 3;
+const docAvgDelta = docAvgLatest - docAvgFirst;
+const progressDelta = last.progress - first.progress;
 
 function reportHref(slug: string) {
   return `${base}/${project}/${slug}/`;
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString("ko-KR", {
+function formatDateShort(iso: string) {
+  return new Date(iso).toLocaleDateString("ko-KR", {
     timeZone: "Asia/Seoul",
-    dateStyle: "medium",
-    timeStyle: "short",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 ---
 
-<Layout title={`${project} — 리포트 히스토리`}>
-  <nav class="mb-6 text-sm">
+<Layout title={`${project} — Bit-Unity15th Dashboard`}>
+  <Header>
+    <div
+      slot="left"
+      style="display:flex;align-items:center;font-family:var(--sans);"
+    >
+      <a
+        href={BASE}
+        style="display:inline-flex;align-items:center;gap:6px;background:transparent;border:none;text-decoration:none;font-family:var(--mono);font-size:12px;color:var(--fg-2);padding:4px 8px;border-radius:3px;"
+      >
+        ← dashboard
+      </a>
+      <span style="color:var(--fg-3);font-size:13px;margin:0 4px;">/</span>
+      <span
+        style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-1);"
+        >{project}</span
+      >
+    </div>
+    <Fragment slot="right">
+      <RiskBadge level={latestData.risk_level} size="md" />
+      <span>{reports.length} reports</span>
+    </Fragment>
+  </Header>
+
+  <div style="max-width:1280px;margin:0 auto;padding:28px 24px 48px;">
     <a
       href={BASE}
-      class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+      class="floating-back"
+      style="position:fixed;top:72px;right:24px;display:inline-flex;align-items:center;gap:8px;background:var(--bg-1);border:1px solid var(--border);border-radius:999px;padding:9px 14px 9px 12px;font-family:var(--mono);font-size:12px;color:var(--fg-1);cursor:pointer;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);text-decoration:none;transition:transform .15s, box-shadow .15s, border-color .15s;"
     >
-      ← 대시보드
+      <span style="font-size:14px;line-height:1;">←</span>
+      <span>대시보드</span>
     </a>
-  </nav>
 
-  <header class="mb-6">
-    <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">
-      {project}
-    </h1>
-    <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">
-      총 {reports.length}개의 리뷰 리포트 — 최신순
-    </p>
-  </header>
-
-  <ProgressPanel
-    progress={latestData.progress_estimate}
-    scores={latestData.doc_scores}
-    updatedAt={latestData.date}
-  />
-
-  <TodoList todos={latestData.todos ?? []} />
-
-  <BacklogHistoryDialog
-    history={historyEntries}
-    projectPath={`${base}/${project}`}
-  />
-
-  <section>
-    <h2
-      class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4"
-    >
-      리포트 타임라인
-    </h2>
-    <ol class="relative border-l border-slate-200 dark:border-slate-800 ml-3">
+    <section style="margin-bottom:28px;">
+      <h1
+        style="font-size:26px;font-weight:600;margin:0;letter-spacing:-0.02em;font-family:var(--mono);color:var(--fg-1);"
+      >
+        {project}
+      </h1>
+      <p
+        style="margin:10px 0 0;color:var(--fg-2);font-size:14px;line-height:1.6;max-width:720px;"
+      >
+        {latestData.summary}
+      </p>
       {
-        reports.map((r) => {
-          const d = r.entry.data;
-          return (
-            <li class="mb-6 ml-6">
-              <span class="absolute -left-[7px] mt-2 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white dark:bg-slate-900 ring-2 ring-slate-300 dark:ring-slate-700" />
+        latestData.tags.length > 0 && (
+          <div style="display:flex;gap:5px;margin-top:14px;flex-wrap:wrap;">
+            {latestData.tags.map((t) => (
+              <Tag>{t}</Tag>
+            ))}
+          </div>
+        )
+      }
+    </section>
+
+    <section
+      class="metric-row"
+      style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:24px;align-items:stretch;"
+    >
+      <ProgressPanel
+        progress={last.progress}
+        scores={{ design: last.design, technical: last.technical, spec: last.spec }}
+        updatedAt={latestData.date}
+      />
+
+      <MetricCard label="risk trend" value={last.risk.toUpperCase()}>
+        <div
+          style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"
+        >
+          <RiskStrip risks={snapshots.map((s) => s.risk)} />
+          <span style="font-family:var(--mono);font-size:10px;color:var(--fg-3);">
+            {snapshots.length} reports
+          </span>
+        </div>
+        <div
+          style="display:flex;align-items:baseline;gap:6px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+        >
+          <span>progress {progressDelta >= 0 ? "+" : ""}{progressDelta}pts</span>
+          <span>·</span>
+          <span>docs {docAvgDelta >= 0 ? "+" : ""}{docAvgDelta.toFixed(1)}</span>
+        </div>
+      </MetricCard>
+    </section>
+
+    <section style="margin-bottom:28px;">
+      <div
+        style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;"
+      >
+        <h2
+          style="font-size:13px;font-weight:600;margin:0;letter-spacing:0.02em;color:var(--fg-1);"
+        >
+          시계열 추이
+        </h2>
+        <span
+          style="font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+          >리포트별 스냅샷</span
+        >
+      </div>
+      <div
+        class="chart-row"
+        style="display:grid;grid-template-columns:2fr 1fr;gap:12px;"
+      >
+        <Panel
+          title="진행도 추이"
+          note={`0 → ${last.progress}% · ${snapshots.length} 스냅샷`}
+        >
+          <div style="overflow-x:auto;">
+            <StepChart
+              data={snapshots.map((s) => ({ date: s.date, value: s.progress }))}
+              width={720}
+              height={220}
+              maxY={100}
+              label="progress %"
+            />
+          </div>
+        </Panel>
+
+        <Panel title="문서화 점수" note="design / technical / spec">
+          <div style="overflow-x:auto;">
+            <MultiLineChart
+              data={snapshots.map((s) => ({
+                date: s.date,
+                values: { design: s.design, technical: s.technical, spec: s.spec },
+              }))}
+              series={[
+                { key: "design", label: "design", color: "var(--series-1)" },
+                { key: "technical", label: "technical", color: "var(--series-2)" },
+                { key: "spec", label: "spec", color: "var(--series-3)" },
+              ]}
+              width={360}
+              height={220}
+              maxY={10}
+            />
+          </div>
+        </Panel>
+      </div>
+
+      <div
+        class="small-multiples"
+        style="display:grid;grid-template-columns:repeat(4, minmax(0, 1fr));gap:12px;margin-top:12px;"
+      >
+        <SmallMultiple
+          label="progress"
+          values={snapshots.map((s) => s.progress)}
+          latest={`${last.progress}%`}
+          accent="var(--series-1)"
+        />
+        <SmallMultiple
+          label="design"
+          values={snapshots.map((s) => s.design)}
+          latest={`${last.design}/10`}
+          accent="var(--series-1)"
+          max={10}
+        />
+        <SmallMultiple
+          label="technical"
+          values={snapshots.map((s) => s.technical)}
+          latest={`${last.technical}/10`}
+          accent="var(--series-2)"
+          max={10}
+        />
+        <SmallMultiple
+          label="spec"
+          values={snapshots.map((s) => s.spec)}
+          latest={`${last.spec}/10`}
+          accent="var(--series-3)"
+          max={10}
+        />
+      </div>
+    </section>
+
+    <section
+      class="todo-backlog-row"
+      style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px;"
+    >
+      <Panel
+        title="TODO"
+        note={`최신 리포트 기준 · ${todos.length}건`}
+      >
+        {
+          todos.length === 0 ? (
+            <p style="margin:0;font-size:13px;color:var(--fg-3);font-style:italic;">
+              등록된 TODO 가 없습니다.
+            </p>
+          ) : (
+            <ol
+              style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;"
+            >
+              {todos.map((t, i) => (
+                <li
+                  style={`display:grid;grid-template-columns:28px 1fr;gap:10px;padding:10px 0;border-bottom:${i < todos.length - 1 ? "1px dashed var(--border-subtle)" : "none"};align-items:start;`}
+                >
+                  <span
+                    style="font-family:var(--mono);font-size:11px;color:var(--fg-3);padding-top:2px;"
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span style="font-size:13px;line-height:1.55;color:var(--fg-1);">
+                    {t}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )
+        }
+      </Panel>
+
+      <div
+        style="border:1px solid var(--border);border-radius:4px;background:var(--bg-1);padding:16px;"
+      >
+        <div
+          style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;"
+        >
+          <h3
+            style="font-size:12px;font-weight:600;margin:0;letter-spacing:0.02em;color:var(--fg-1);"
+          >
+            Backlog
+          </h3>
+          <span
+            style="font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+          >
+            누적 {carryOver.length} · 해결 {resolved.length}
+          </span>
+          <button
+            type="button"
+            data-open-backlog
+            style="margin-left:auto;font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:3px;background:var(--bg-2);border:1px solid var(--border);color:var(--fg-2);cursor:pointer;"
+          >
+            history →
+          </button>
+        </div>
+        {
+          carryOver.length === 0 ? (
+            <p style="margin:0;font-size:13px;color:var(--fg-3);font-style:italic;">
+              현재 미해결 backlog 가 없습니다.
+            </p>
+          ) : (
+            <ul
+              style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;"
+            >
+              {carryOver.map((b, i) => (
+                <li
+                  style={`display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:9px 0;border-bottom:${i < carryOver.length - 1 ? "1px dashed var(--border-subtle)" : "none"};`}
+                >
+                  <span
+                    style="font-size:12.5px;line-height:1.5;color:var(--fg-1);"
+                  >
+                    {b.text}
+                    <span
+                      style="display:block;font-family:var(--mono);font-size:10px;color:var(--fg-3);margin-top:2px;"
+                    >
+                      first seen · {formatDateShort(b.firstSeen)}
+                    </span>
+                  </span>
+                  <AgeBadge age={b.age} />
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      </div>
+    </section>
+
+    <section>
+      <div
+        style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;"
+      >
+        <h2
+          style="font-size:13px;font-weight:600;margin:0;letter-spacing:0.02em;color:var(--fg-1);"
+        >
+          리포트 타임라인
+        </h2>
+        <span
+          style="font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+        >
+          {reports.length}개 스냅샷 · 최신순
+        </span>
+      </div>
+      <div
+        style="border:1px solid var(--border);border-radius:4px;background:var(--bg-1);overflow:hidden;"
+      >
+        {
+          reports.map((r, i) => {
+            const d = r.entry.data;
+            const isLatest = i === 0;
+            return (
               <a
                 href={reportHref(r.slug)}
-                class="block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:border-slate-400 dark:hover:border-slate-600 transition"
+                class="timeline-row"
+                style={`display:grid;grid-template-columns:170px 64px 100px 1fr 70px 24px;gap:14px;align-items:center;padding:14px 16px;border-bottom:${i < reports.length - 1 ? "1px solid var(--border)" : "none"};text-decoration:none;color:inherit;font-family:var(--sans);transition:background .12s;`}
               >
-                <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <time>{formatDate(d.date)}</time>
-                  <span>·</span>
-                  <span class="font-mono">{d.commit_range}</span>
-                  <span>·</span>
-                  <span>{d.commit_count} commits</span>
-                  <span class="ml-auto">
-                    <RiskBadge level={d.risk_level} size="sm" />
-                  </span>
-                </div>
-                <p class="mt-2 text-sm text-slate-800 dark:text-slate-200">
+                <span style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;">
+                  {formatDateShort(d.date)}
+                  {isLatest && (
+                    <span
+                      style="margin-left:6px;padding:1px 5px;background:var(--accent);color:var(--accent-fg);font-size:9px;border-radius:2px;font-weight:600;white-space:nowrap;"
+                    >
+                      LATEST
+                    </span>
+                  )}
+                </span>
+                <RiskBadge level={d.risk_level} />
+                <span style="font-family:var(--mono);font-size:11px;color:var(--fg-2);">
+                  {d.commit_count} commits
+                </span>
+                <span style="font-size:12.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                   {d.summary}
-                </p>
-                {d.tags.length > 0 && (
-                  <div class="mt-3 flex flex-wrap gap-1.5">
-                    {d.tags.map((t) => (
-                      <span class="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] px-2 py-0.5">
-                        #{t}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                </span>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;">
+                  {d.progress_estimate}%
+                </span>
+                <span style="color:var(--fg-3);">→</span>
               </a>
-            </li>
-          );
-        })
-      }
-    </ol>
-  </section>
+            );
+          })
+        }
+      </div>
+    </section>
+  </div>
+
+  <BacklogHistoryDialog
+    project={project}
+    carryOver={carryOver}
+    resolved={resolved}
+  />
+
+  <Footer />
 </Layout>
+
+<style is:global>
+  .timeline-row:hover {
+    background: var(--bg-2);
+  }
+  .floating-back:hover {
+    transform: translateX(-2px);
+    border-color: var(--accent) !important;
+    box-shadow:
+      0 6px 16px rgba(0, 0, 0, 0.12),
+      0 1px 3px rgba(0, 0, 0, 0.06) !important;
+  }
+
+  @media (max-width: 900px) {
+    .metric-row,
+    .todo-backlog-row {
+      grid-template-columns: 1fr !important;
+    }
+    .chart-row {
+      grid-template-columns: 1fr !important;
+    }
+    .small-multiples {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .floating-back {
+      display: none !important;
+    }
+  }
+  @media (max-width: 600px) {
+    .small-multiples {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>

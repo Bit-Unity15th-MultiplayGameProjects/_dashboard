@@ -1,10 +1,21 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import StatCard from "../components/StatCard.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import Logo from "../components/Logo.astro";
+import StatCell from "../components/StatCell.astro";
 import ProjectCard from "../components/ProjectCard.astro";
-import { getAllReports, getProjectSummaries } from "../lib/reports";
+import ProjectTable from "../components/ProjectTable.astro";
+import FilterTabs from "../components/FilterTabs.astro";
+import ViewToggle from "../components/ViewToggle.astro";
+import {
+  getAllReports,
+  getProjectSummaries,
+  chronologicalSnapshots,
+} from "../lib/reports";
 
 const BASE = import.meta.env.BASE_URL;
+const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
 
 const allReports = await getAllReports();
 const projects = await getProjectSummaries();
@@ -16,67 +27,246 @@ const riskCounts = { low: 0, medium: 0, high: 0 };
 for (const p of projects) {
   riskCounts[p.latest.entry.data.risk_level] += 1;
 }
+const filterCounts = { all: totalProjects, ...riskCounts };
+
+const buildTime = new Date().toLocaleString("ko-KR", {
+  timeZone: "Asia/Seoul",
+  dateStyle: "short",
+  timeStyle: "short",
+});
 
 function projectHref(project: string) {
-  // BASE already starts with `/` (e.g. "/_dashboard"); ensure no double slash.
-  const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
   return `${base}/${project}/`;
 }
+
+const cards = projects.map((p) => ({
+  project: p.project,
+  href: projectHref(p.project),
+  summary: p.latest.entry.data.summary,
+  risk: p.latest.entry.data.risk_level,
+  tags: p.latest.entry.data.tags,
+  snapshots: chronologicalSnapshots(p),
+}));
 ---
 
 <Layout title="Bit-Unity15th Dashboard">
-  <section class="mb-8">
-    <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">
-      프로젝트 대시보드
-    </h1>
-    <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">
-      Bit-Unity15th-MultiplayGameProjects organization 내 프로젝트 repo들의
-      코드리뷰/진행도 리포트를 주기적으로 수집합니다.
-    </p>
+  <Header>
+    <div
+      slot="left"
+      style="display:flex;align-items:center;gap:10px;font-family:var(--sans);"
+    >
+      <Logo />
+      <span
+        style="font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-1);"
+        >Bit-Unity15th</span
+      >
+      <span style="color:var(--fg-3);font-size:13px;">/</span>
+      <span style="font-size:13px;color:var(--fg-2);">dashboard</span>
+    </div>
+    <Fragment slot="right">
+      <span>Last build · {buildTime}</span>
+      <span
+        style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:3px;"
+      >
+        <span
+          style="width:6px;height:6px;border-radius:50%;background:var(--risk-low);animation:dash-pulse 2s infinite;"
+        ></span>
+        synced
+      </span>
+    </Fragment>
+  </Header>
+
+  <section
+    style="padding:32px 24px 24px;max-width:1280px;margin:0 auto;"
+  >
+    <div
+      style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px;gap:16px;flex-wrap:wrap;"
+    >
+      <div>
+        <h1
+          style="font-size:24px;font-weight:600;margin:0;letter-spacing:-0.02em;color:var(--fg-1);"
+        >
+          프로젝트 대시보드
+        </h1>
+        <p
+          style="margin:6px 0 0;color:var(--fg-2);font-size:13px;line-height:1.6;"
+        >
+          Bit-Unity15th-MultiplayGameProjects organization 내 {totalProjects}개
+          프로젝트의 코드리뷰·진행도 리포트.
+        </p>
+      </div>
+      <div
+        style="font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+      >
+        주간 스냅샷 · {totalReports} reports
+      </div>
+    </div>
+
+    <div
+      style="display:grid;grid-template-columns:repeat(5, minmax(0, 1fr));border:1px solid var(--border);border-radius:4px;overflow:hidden;background:var(--bg-1);"
+      class="stat-strip"
+    >
+      <StatCell label="projects" value={totalProjects} sub="active repos" />
+      <StatCell label="reports" value={totalReports} sub="accumulated" />
+      <StatCell
+        label="risk · low"
+        value={riskCounts.low}
+        dot="var(--risk-low)"
+      />
+      <StatCell
+        label="risk · med"
+        value={riskCounts.medium}
+        dot="var(--risk-med)"
+      />
+      <StatCell
+        label="risk · high"
+        value={riskCounts.high}
+        dot="var(--risk-high)"
+        last
+      />
+    </div>
   </section>
 
   <section
-    class="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-10"
-    aria-label="전체 통계"
+    style="padding:0 24px 48px;max-width:1280px;margin:0 auto;"
   >
-    <StatCard label="프로젝트" value={totalProjects} />
-    <StatCard label="리포트" value={totalReports} />
-    <StatCard label="Low risk" value={riskCounts.low} accent="emerald" />
-    <StatCard label="Medium risk" value={riskCounts.medium} accent="amber" />
-    <StatCard label="High risk" value={riskCounts.high} accent="rose" />
-  </section>
-
-  <section>
-    <div class="flex items-end justify-between mb-4">
-      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        프로젝트
-      </h2>
-      <span class="text-xs text-slate-500 dark:text-slate-400">
-        최근 업데이트순
-      </span>
-    </div>
-
     {
       projects.length === 0 ? (
-        <div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-12 text-center text-slate-500">
+        <div
+          style="border:1px dashed var(--border);border-radius:4px;padding:48px 24px;text-align:center;color:var(--fg-3);font-family:var(--mono);font-size:12px;"
+        >
           아직 수집된 리포트가 없습니다.
         </div>
       ) : (
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p) => (
-            <ProjectCard
-              project={p.project}
-              href={projectHref(p.project)}
-              date={p.latest.entry.data.date}
-              summary={p.latest.entry.data.summary}
-              risk={p.latest.entry.data.risk_level}
-              tags={p.latest.entry.data.tags}
-              reportCount={p.reports.length}
-              progress={p.latest.entry.data.progress_estimate}
-            />
-          ))}
-        </div>
+        <>
+          <div
+            style="display:flex;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap;"
+          >
+            <h2
+              style="font-size:13px;font-weight:600;margin:0;letter-spacing:0.02em;color:var(--fg-1);"
+            >
+              프로젝트{" "}
+              <span
+                data-visible-count
+                style="color:var(--fg-3);font-family:var(--mono);font-weight:400;"
+              >
+                ({cards.length})
+              </span>
+            </h2>
+            <div
+              style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"
+            >
+              <FilterTabs counts={filterCounts} />
+              <ViewToggle />
+            </div>
+          </div>
+
+          <div
+            data-view-pane="grid"
+            class="project-grid"
+            style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:12px;"
+          >
+            {cards.map((c) => (
+              <ProjectCard
+                project={c.project}
+                href={c.href}
+                summary={c.summary}
+                risk={c.risk}
+                tags={c.tags}
+                snapshots={c.snapshots}
+              />
+            ))}
+          </div>
+
+          <div data-view-pane="table" style="display:none;">
+            <ProjectTable rows={cards} />
+          </div>
+
+          <p
+            data-empty-msg
+            style="display:none;border:1px dashed var(--border);border-radius:4px;padding:32px 24px;text-align:center;color:var(--fg-3);font-family:var(--mono);font-size:12px;margin-top:12px;"
+          >
+            해당 risk 레벨의 프로젝트가 없습니다.
+          </p>
+        </>
       )
     }
   </section>
+
+  <Footer />
 </Layout>
+
+<style is:global>
+  @media (max-width: 720px) {
+    .stat-strip {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .project-grid {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>
+
+<script is:inline>
+  (function () {
+    let view = "grid";
+    let filter = "all";
+
+    const apply = () => {
+      // toggle view panes
+      document.querySelectorAll("[data-view-pane]").forEach((el) => {
+        el.style.display =
+          el.dataset.viewPane === view
+            ? el.dataset.viewPane === "grid"
+              ? "grid"
+              : "block"
+            : "none";
+      });
+      // filter cards / rows
+      let visible = 0;
+      document
+        .querySelectorAll("[data-card], [data-row]")
+        .forEach((el) => {
+          const isCard = el.hasAttribute("data-card");
+          if (
+            (view === "grid" && !isCard) ||
+            (view === "table" && isCard)
+          )
+            return;
+          const matches = filter === "all" || el.dataset.risk === filter;
+          el.style.display = matches ? (isCard ? "flex" : "grid") : "none";
+          if (matches) visible += 1;
+        });
+      const counter = document.querySelector("[data-visible-count]");
+      if (counter) counter.textContent = `(${visible})`;
+      const empty = document.querySelector("[data-empty-msg]");
+      if (empty) empty.style.display = visible === 0 ? "block" : "none";
+      // pressed states
+      document.querySelectorAll("[data-filter-btn]").forEach((b) => {
+        const active = b.dataset.filterBtn === filter;
+        b.setAttribute("aria-pressed", active ? "true" : "false");
+        b.style.background = active ? "var(--bg-2)" : "var(--bg)";
+        b.style.color = active ? "var(--fg-1)" : "var(--fg-2)";
+      });
+      document.querySelectorAll("[data-view-btn]").forEach((b) => {
+        const active = b.dataset.viewBtn === view;
+        b.setAttribute("aria-pressed", active ? "true" : "false");
+        b.style.background = active ? "var(--bg-2)" : "var(--bg)";
+        b.style.color = active ? "var(--fg-1)" : "var(--fg-2)";
+      });
+    };
+
+    document.querySelectorAll("[data-filter-btn]").forEach((b) => {
+      b.addEventListener("click", () => {
+        filter = b.dataset.filterBtn;
+        apply();
+      });
+    });
+    document.querySelectorAll("[data-view-btn]").forEach((b) => {
+      b.addEventListener("click", () => {
+        view = b.dataset.viewBtn;
+        apply();
+      });
+    });
+  })();
+</script>

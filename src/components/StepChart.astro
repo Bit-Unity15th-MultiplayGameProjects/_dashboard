@@ -1,0 +1,150 @@
+---
+/**
+ * 시계열 스텝 차트. progress / risk numeric 등에 사용.
+ * 데이터 포인트가 1개 미만이면 placeholder 출력.
+ */
+interface Snapshot {
+  date: string; // ISO date or YYYY-MM-DD
+  value: number;
+}
+interface Props {
+  data: Snapshot[];
+  width?: number;
+  height?: number;
+  maxY?: number;
+  accent?: string;
+  label?: string;
+}
+
+const {
+  data,
+  width = 560,
+  height = 200,
+  maxY = 100,
+  accent = "var(--accent)",
+  label,
+} = Astro.props;
+
+const padL = 34,
+  padR = 18,
+  padT = 18,
+  padB = 28;
+const w = width - padL - padR;
+const h = height - padT - padB;
+
+const safe =
+  data.length >= 2 ? data : data.length === 1 ? [data[0], data[0]] : [];
+
+const xs = safe.map(
+  (_, i) => padL + (i / Math.max(1, safe.length - 1)) * w,
+);
+const y = (v: number) => padT + h - (v / maxY) * h;
+
+let pathD = "";
+safe.forEach((s, i) => {
+  const px = xs[i];
+  const py = y(s.value);
+  if (i === 0) pathD += `M${px.toFixed(1)},${py.toFixed(1)}`;
+  else {
+    const prev = y(safe[i - 1].value);
+    pathD += ` L${px.toFixed(1)},${prev.toFixed(1)} L${px.toFixed(1)},${py.toFixed(1)}`;
+  }
+});
+
+const gridY = maxY === 10 ? [0, 2, 4, 6, 8, 10] : [0, 25, 50, 75, 100];
+
+const firstLabel = safe.length ? safe[0].date.slice(5, 10) : "";
+const lastLabel = safe.length ? safe[safe.length - 1].date.slice(5, 10) : "";
+
+const areaD =
+  safe.length >= 1
+    ? `${pathD} L${xs[xs.length - 1].toFixed(1)},${y(0).toFixed(1)} L${xs[0].toFixed(1)},${y(0).toFixed(1)} Z`
+    : "";
+---
+
+{
+  safe.length === 0 ? (
+    <div
+      style={`width:${width}px;height:${height}px;display:flex;align-items:center;justify-content:center;color:var(--fg-3);font-family:var(--mono);font-size:11px;`}
+    >
+      데이터 부족
+    </div>
+  ) : (
+    <svg
+      width={width}
+      height={height}
+      style="display:block;font-family:var(--mono);"
+      aria-hidden="true"
+    >
+      {gridY.map((g) => (
+        <g>
+          <line
+            x1={padL}
+            x2={width - padR}
+            y1={y(g)}
+            y2={y(g)}
+            stroke="var(--border-subtle)"
+            stroke-dasharray="2 3"
+          />
+          <text
+            x={padL - 6}
+            y={y(g) + 3}
+            text-anchor="end"
+            font-size="9"
+            fill="var(--fg-3)"
+          >
+            {g}
+          </text>
+        </g>
+      ))}
+      <path d={areaD} fill={accent} fill-opacity="0.08" />
+      <path
+        d={pathD}
+        fill="none"
+        stroke={accent}
+        stroke-width="1.5"
+        stroke-linejoin="miter"
+      />
+      {safe.map((s, i) => (
+        <circle
+          cx={xs[i]}
+          cy={y(s.value)}
+          r="2.5"
+          fill="var(--bg-1)"
+          stroke={accent}
+          stroke-width="1.5"
+        />
+      ))}
+      <text
+        x={xs[0]}
+        y={height - 10}
+        font-size="9"
+        fill="var(--fg-3)"
+        text-anchor="start"
+      >
+        {firstLabel}
+      </text>
+      <text
+        x={xs[xs.length - 1]}
+        y={height - 10}
+        font-size="9"
+        fill="var(--fg-3)"
+        text-anchor="end"
+      >
+        {lastLabel}
+      </text>
+      {label && (
+        <text
+          x={width - padR}
+          y={padT - 6}
+          font-size="10"
+          fill="var(--fg-2)"
+          text-anchor="end"
+          font-weight="600"
+        >
+          {label}
+        </text>
+      )}
+    </svg>
+  )
+}

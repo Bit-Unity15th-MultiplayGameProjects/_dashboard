@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Bit-Unity15th Dashboard — Redesign</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Korean font -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --sans: "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  html, body { margin: 0; padding: 0; background: #f7f6f3; min-height: 100vh; font-family: var(--sans); }
+  * { box-sizing: border-box; }
+
+  /* Light theme tokens */
+  .theme-light {
+    --bg:          oklch(0.985 0.003 90);
+    --bg-1:        oklch(0.998 0.002 90);
+    --bg-2:        oklch(0.965 0.005 90);
+    --fg-1:        oklch(0.22 0.01 260);
+    --fg-2:        oklch(0.45 0.01 260);
+    --fg-3:        oklch(0.62 0.01 260);
+    --border:      oklch(0.90 0.005 90);
+    --border-subtle: oklch(0.94 0.004 90);
+    --bar-bg:      oklch(0.93 0.006 90);
+    --tag-bg:      oklch(0.975 0.004 90);
+    --badge-bg:    oklch(0.98 0.003 90);
+    --accent:      var(--accent-raw);
+    --risk-low:    oklch(0.62 0.14 155);
+    --risk-med:    oklch(0.72 0.15 70);
+    --risk-high:   oklch(0.58 0.18 25);
+    --series-1:    oklch(0.55 0.14 255);
+    --series-2:    oklch(0.62 0.15 165);
+    --series-3:    oklch(0.65 0.15 50);
+    --age-fresh-bg: oklch(0.95 0.02 155);
+    --age-fresh-fg: oklch(0.42 0.12 155);
+    --age-aging-bg: oklch(0.95 0.03 70);
+    --age-aging-fg: oklch(0.46 0.14 60);
+    --age-stale-bg: oklch(0.95 0.03 25);
+    --age-stale-fg: oklch(0.42 0.16 25);
+  }
+
+  /* Dark theme tokens */
+  .theme-dark {
+    --bg:          oklch(0.17 0.008 260);
+    --bg-1:        oklch(0.20 0.008 260);
+    --bg-2:        oklch(0.24 0.008 260);
+    --fg-1:        oklch(0.95 0.005 260);
+    --fg-2:        oklch(0.72 0.008 260);
+    --fg-3:        oklch(0.52 0.008 260);
+    --border:      oklch(0.30 0.008 260);
+    --border-subtle: oklch(0.26 0.008 260);
+    --bar-bg:      oklch(0.27 0.008 260);
+    --tag-bg:      oklch(0.22 0.008 260);
+    --badge-bg:    oklch(0.22 0.008 260);
+    --accent:      var(--accent-raw);
+    --risk-low:    oklch(0.74 0.16 155);
+    --risk-med:    oklch(0.78 0.16 70);
+    --risk-high:   oklch(0.72 0.19 25);
+    --series-1:    oklch(0.72 0.14 255);
+    --series-2:    oklch(0.76 0.15 165);
+    --series-3:    oklch(0.78 0.15 50);
+    --age-fresh-bg: oklch(0.28 0.04 155);
+    --age-fresh-fg: oklch(0.82 0.14 155);
+    --age-aging-bg: oklch(0.30 0.05 70);
+    --age-aging-fg: oklch(0.85 0.14 70);
+    --age-stale-bg: oklch(0.30 0.06 25);
+    --age-stale-fg: oklch(0.82 0.16 25);
+  }
+
+  @keyframes dash-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Korean + mono fine-tuning */
+  button { font-family: var(--sans); color: inherit; }
+  ::selection { background: var(--accent); color: var(--bg); }
+
+  /* Tweaks panel */
+  .tweaks-panel {
+    position: fixed; bottom: 20px; right: 20px;
+    width: 240px;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px 16px;
+    font-family: var(--sans); font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    z-index: 1000;
+    display: none;
+  }
+  .tweaks-panel.open { display: block; }
+  .tweaks-panel h4 {
+    margin: 0 0 12px; font-size: 11px; font-family: var(--mono);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg-3);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .tweaks-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .tweaks-row label { font-size: 11px; color: var(--fg-2); font-family: var(--mono); }
+  .tweaks-swatches { display: flex; gap: 6px; }
+  .tweaks-swatches button {
+    width: 22px; height: 22px; border-radius: 4px;
+    border: 1.5px solid transparent; cursor: pointer; padding: 0;
+  }
+  .tweaks-swatches button.active { border-color: var(--fg-1); }
+  .tweaks-seg {
+    display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  }
+  .tweaks-seg button {
+    flex: 1; padding: 5px 8px; font-family: var(--mono); font-size: 11px;
+    background: var(--bg); border: none; cursor: pointer; color: var(--fg-2);
+  }
+  .tweaks-seg button.active { background: var(--bg-2); color: var(--fg-1); }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<!-- Tweak defaults (editable via host) -->
+<script>
+  window.__TWEAKS__ = /*EDITMODE-BEGIN*/{
+    "theme": "dark",
+    "accent": "rose"
+  }/*EDITMODE-END*/;
+</script>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Data + components -->
+<script src="data.js"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="pages/Home.jsx"></script>
+<script type="text/babel" src="pages/ProjectDetail.jsx"></script>
+<script type="text/babel" src="pages/Report.jsx"></script>
+
+<!-- App shell -->
+<script type="text/babel">
+  const ACCENTS = {
+    indigo:  'oklch(0.52 0.18 265)',
+    emerald: 'oklch(0.58 0.14 155)',
+    amber:   'oklch(0.65 0.16 60)',
+    rose:    'oklch(0.60 0.19 15)',
+    violet:  'oklch(0.54 0.20 295)',
+    slate:   'oklch(0.42 0.02 260)',
+  };
+
+  function App() {
+    const [route, setRoute] = React.useState(() => {
+      try { return JSON.parse(localStorage.getItem('dash_route') || 'null') || { page: 'home' }; }
+      catch { return { page: 'home' }; }
+    });
+    const [theme, setTheme] = React.useState(window.__TWEAKS__.theme || 'light');
+    const [accent, setAccent] = React.useState(window.__TWEAKS__.accent || 'indigo');
+    const [tweaksOpen, setTweaksOpen] = React.useState(false);
+
+    React.useEffect(() => {
+      localStorage.setItem('dash_route', JSON.stringify(route));
+    }, [route]);
+
+    React.useEffect(() => {
+      document.documentElement.style.setProperty('--accent-raw', ACCENTS[accent]);
+    }, [accent]);
+
+    // Tweaks bridge
+    React.useEffect(() => {
+      const handler = (e) => {
+        if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+        else if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+      };
+      window.addEventListener('message', handler);
+      window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+      return () => window.removeEventListener('message', handler);
+    }, []);
+
+    function updateTweak(key, val) {
+      if (key === 'theme') setTheme(val);
+      if (key === 'accent') setAccent(val);
+      window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: val } }, '*');
+    }
+
+    const go = {
+      home: () => setRoute({ page: 'home' }),
+      project: (slug) => setRoute({ page: 'project', slug }),
+      report: (slug, date) => setRoute({ page: 'report', slug, date }),
+    };
+
+    let page;
+    if (route.page === 'home') {
+      page = <Home onOpenProject={go.project} />;
+    } else if (route.page === 'project') {
+      page = <ProjectDetail slug={route.slug} onBack={go.home}
+        onOpenReport={(slug, date) => go.report(slug, date)} />;
+    } else if (route.page === 'report') {
+      page = <ReportPage slug={route.slug} date={route.date}
+        onBack={go.home}
+        onBackToProject={(date) => date ? go.report(route.slug, date) : go.project(route.slug)} />;
+    }
+
+    return (
+      <div className={`theme-${theme}`} style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+        {page}
+        {tweaksOpen && (
+          <div className="tweaks-panel open">
+            <h4>Tweaks <button onClick={() => setTweaksOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--fg-3)', cursor: 'pointer', fontSize: 14 }}>×</button></h4>
+            <div className="tweaks-row">
+              <label>theme</label>
+              <div className="tweaks-seg">
+                <button className={theme === 'light' ? 'active' : ''} onClick={() => updateTweak('theme', 'light')}>light</button>
+                <button className={theme === 'dark' ? 'active' : ''} onClick={() => updateTweak('theme', 'dark')}>dark</button>
+              </div>
+            </div>
+            <div className="tweaks-row">
+              <label>accent</label>
+              <div className="tweaks-swatches">
+                {Object.entries(ACCENTS).map(([k, v]) => (
+                  <button key={k}
+                          title={k}
+                          className={accent === k ? 'active' : ''}
+                          style={{ background: v }}
+                          onClick={() => updateTweak('accent', k)} />
+                ))}
+              </div>
+            </div>
+            <div className="tweaks-row">
+              <label>pages</label>
+              <div className="tweaks-seg">
+                <button className={route.page === 'home' ? 'active' : ''} onClick={go.home}>home</button>
+                <button className={route.page === 'project' ? 'active' : ''} onClick={() => go.project('rougelike-endwalker')}>project</button>
+                <button className={route.page === 'report' ? 'active' : ''} onClick={() => go.report('rougelike-endwalker', '2026-04-22')}>report</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+</body>
+</html>

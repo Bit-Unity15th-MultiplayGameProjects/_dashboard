@@ -1,32 +1,28 @@
 ---
 interface Props {
   level: "low" | "medium" | "high";
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }
 
-const { level, size = "md" } = Astro.props;
+const { level, size = "sm" } = Astro.props;
 
-const styles = {
-  low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-400/20",
-  medium:
-    "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 ring-amber-600/20 dark:ring-amber-400/20",
-  high: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 ring-rose-600/20 dark:ring-rose-400/20",
+const meta = {
+  low: { dot: "var(--risk-low)", text: "LOW", label: "low risk" },
+  medium: { dot: "var(--risk-med)", text: "MED", label: "medium risk" },
+  high: { dot: "var(--risk-high)", text: "HIGH", label: "high risk" },
 }[level];
 
-const labels = {
-  low: "LOW",
-  medium: "MED",
-  high: "HIGH",
-}[level];
-
-const sizes = {
-  sm: "text-[10px] px-1.5 py-0.5",
-  md: "text-xs px-2 py-0.5",
-}[size];
+const h = size === "lg" ? 24 : size === "md" ? 20 : 18;
+const fs = size === "lg" ? 11 : 10;
 ---
 
 <span
-  class={`inline-flex items-center rounded-full font-semibold tracking-wide ring-1 ring-inset ${styles} ${sizes}`}
+  role="status"
+  aria-label={meta.label}
+  style={`display:inline-flex;align-items:center;gap:6px;height:${h}px;padding:0 8px;border-radius:3px;background:var(--badge-bg);border:1px solid var(--border);font-family:var(--mono);font-size:${fs}px;font-weight:600;letter-spacing:0.08em;color:var(--fg-2);`}
 >
-  {labels}
+  <span
+    style={`width:6px;height:6px;border-radius:50%;background:${meta.dot};box-shadow:0 0 0 2px ${meta.dot}22;`}
+  ></span>
+  {meta.text}
 </span>

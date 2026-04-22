@@ -1,0 +1,24 @@
+---
+const opts = [
+  { k: "grid", label: "grid" },
+  { k: "table", label: "table" },
+] as const;
+---
+
+<div
+  data-view-toggle
+  style="display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;"
+>
+  {
+    opts.map((o, i) => (
+      <button
+        type="button"
+        data-view-btn={o.k}
+        aria-pressed={o.k === "grid" ? "true" : "false"}
+        style={`padding:5px 10px;font-size:11px;font-family:var(--mono);border:none;cursor:pointer;background:${o.k === "grid" ? "var(--bg-2)" : "var(--bg)"};color:${o.k === "grid" ? "var(--fg-1)" : "var(--fg-2)"};border-left:${i === 0 ? "none" : "1px solid var(--border)"};`}
+      >
+        {o.label}
+      </button>
+    ))
+  }
+</div>
