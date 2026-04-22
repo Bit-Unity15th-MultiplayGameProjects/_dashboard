@@ -1,0 +1,76 @@
+name: Deploy to Pages
+
+on:
+  # main 브랜치 업데이트 시
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+  # 수동 트리거
+  workflow_dispatch:
+  # 리포트 생성 파이프라인이 끝난 직후 자동 배포
+  # (generate-reports.yml 이 reports/ 에 새 커밋을 push하면
+  #  push 트리거가 먼저 걸릴 수 있지만, paths-ignore나 supervisor 설정 변화에
+  #  대비해 workflow_run 도 이중으로 둔다)
+  workflow_run:
+    workflows: ["Generate Reports"]
+    types:
+      - completed
+    branches: [main]
+
+# Pages 배포에 필요한 최소 권한
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 동시에 여러 배포가 돌면 artifact가 꼬이므로 직렬화.
+# cancel-in-progress: false — 진행 중인 배포를 죽이지 않고 다음 커밋은 대기.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    # workflow_run 트리거일 때는 upstream 성공한 경우만 진행
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          # Astro 공식 Pages 가이드 권장
+          NODE_ENV: production
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

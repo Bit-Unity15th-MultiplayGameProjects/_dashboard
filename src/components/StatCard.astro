@@ -1,0 +1,25 @@
+---
+interface Props {
+  label: string;
+  value: string | number;
+  accent?: "default" | "emerald" | "amber" | "rose";
+}
+
+const { label, value, accent = "default" } = Astro.props;
+
+const accents = {
+  default: "text-slate-900 dark:text-slate-100",
+  emerald: "text-emerald-600 dark:text-emerald-400",
+  amber: "text-amber-600 dark:text-amber-400",
+  rose: "text-rose-600 dark:text-rose-400",
+}[accent];
+---
+
+<div
+  class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4"
+>
+  <div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+    {label}
+  </div>
+  <div class={`mt-1 text-2xl font-bold tabular-nums ${accents}`}>{value}</div>
+</div>

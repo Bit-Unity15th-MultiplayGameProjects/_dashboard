@@ -1,0 +1,421 @@
+# 주기적으로 수강생 repo 들을 스캔해, 게이트를 통과한 repo 에 한해
+# Claude 리뷰를 돌리고 결과를 reports/ 에 커밋한다.
+#
+# 참고: 스펙상 anthropics/claude-code-action@beta 호출이 명시돼 있었지만,
+# 해당 action 은 PR/issue 이벤트 기반 자동 응답용으로 설계돼 있어
+# "cron × matrix × 파일 출력" 조합에는 잘 맞지 않는다. 대신 같은 OAuth
+# 토큰을 쓰는 Claude Code CLI (`@anthropic-ai/claude-code`) 를 직접 호출한다.
+# test-prompt.sh 와 동일한 실행 경로라 dev/prod parity 도 유지된다.
+
+name: generate-reports
+
+on:
+  schedule:
+    # 30 분마다 — 실제 Claude 호출은 게이트에서 걸러진다.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "특정 repo 하나만 강제 실행 (빈칸이면 전체)"
+        required: false
+        type: string
+      force:
+        description: "쿨다운·커밋수 게이트 무시 (SHA 동일하면 여전히 skip)"
+        required: false
+        type: boolean
+        default: false
+
+# reports/ 커밋 푸시 권한. org 의 다른 repo 읽기는 ORG_REPO_PAT_BIT_UNITY_15TH 으로.
+permissions:
+  contents: write
+
+env:
+  ORG: Bit-Unity15th-MultiplayGameProjects
+  MIN_INTERVAL_HOURS: "6"
+  MIN_COMMITS: "2"
+
+jobs:
+  # ===========================================================================
+  # discover — 리뷰 대상 repo 목록 확정
+  # ===========================================================================
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      repos: ${{ steps.list.outputs.repos }}
+      count: ${{ steps.list.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List target repos
+        id: list
+        env:
+          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${TARGET_REPO:-}" ]]; then
+            # 수동 실행 + 특정 repo 지정: 해당 repo 하나만. (게이트는 여전히 타니
+            # 존재/권한은 review 잡의 check 단계에서 최종 확인된다.)
+            echo "[info] workflow_dispatch target_repo override: $TARGET_REPO" >&2
+            repos=$(jq -cn --arg r "$TARGET_REPO" '[$r]')
+          else
+            repos="$(bash scripts/list-target-repos.sh)"
+          fi
+
+          count=$(jq 'length' <<<"$repos")
+          echo "[info] discovered $count repo(s): $repos" >&2
+
+          echo "repos=$repos" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Discover"
+            echo ""
+            echo "- **repos found:** $count"
+            echo "- **list:** \`$repos\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # review — repo 하나당 cell. 게이트 → 프롬프트 → Claude → 커밋.
+  # ===========================================================================
+  review:
+    needs: discover
+    # 빈 배열이면 skip (matrix 가 0개라 어차피 실행 안 되지만 명시적으로).
+    if: needs.discover.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Max 구독 rate limit 을 쥐어짜지 않도록 동시 3개 이하로 제한.
+      max-parallel: 3
+      matrix:
+        repo: ${{ fromJson(needs.discover.outputs.repos) }}
+    # 같은 repo 에 대한 중복 실행 방지. cron 이 30 분마다 돌고 긴 리뷰가 끼면
+    # 다음 cron 이 겹칠 수 있다. 취소하지 않고 큐잉한다 (리포트 누락 방지).
+    concurrency:
+      group: report-${{ matrix.repo }}
+      cancel-in-progress: false
+    timeout-minutes: 25
+    steps:
+      - name: Checkout _dashboard
+        uses: actions/checkout@v4
+        with:
+          # rebase-pull-push 대비 히스토리 풀. 커밋/메타 변경 이력 조회도 필요.
+          fetch-depth: 0
+          # 기본 GITHUB_TOKEN 으로 체크아웃 → 같은 repo 푸시 권한 OK.
+          # 외부 org repo 접근은 ORG_REPO_PAT_BIT_UNITY_15TH 로 gh api 에서만 사용.
+
+      # ---------------------------------------------------------------------
+      # 게이트: force=true 면 우회. 아니면 check-needs-report.sh 에 위임.
+      # ---------------------------------------------------------------------
+      - name: Check gates
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          FORCE: ${{ inputs.force }}
+          REPO: ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${FORCE:-false}" == "true" ]]; then
+            echo "[info] force=true — bypassing cooldown/commit-count gates" >&2
+
+            # force 라도 원격 HEAD SHA 는 조회해야 한다. SHA 가 last_sha 와 같으면
+            # 의미 있는 diff 가 없으니 여전히 skip (자원·토큰 낭비 방지).
+            DEFAULT_BRANCH=$(gh api "repos/${ORG}/${REPO}" --jq '.default_branch')
+            CURRENT_SHA=$(gh api "repos/${ORG}/${REPO}/commits/${DEFAULT_BRANCH}" --jq '.sha')
+
+            META="reports/${REPO}/.meta.json"
+            if [[ -f "$META" ]]; then
+              LAST_SHA=$(jq -r '.last_sha // ""' "$META")
+            else
+              LAST_SHA=""
+            fi
+
+            if [[ -n "$LAST_SHA" && "$CURRENT_SHA" == "$LAST_SHA" ]]; then
+              SHOULD=false
+              REASON="force=true but no new commits (SHA unchanged)"
+            else
+              SHOULD=true
+              REASON="force=true (manual bypass)"
+            fi
+
+            FIRST=$([[ -z "$LAST_SHA" ]] && echo true || echo false)
+
+            {
+              echo "should_run=$SHOULD"
+              echo "current_sha=$CURRENT_SHA"
+              echo "last_sha=$LAST_SHA"
+              echo "commit_count=?"
+              echo "first_report=$FIRST"
+              echo "reason=$REASON"
+            } >> "$GITHUB_OUTPUT"
+          else
+            # 표준 경로: 스크립트가 GITHUB_OUTPUT 에 직접 게이트 결과를 쓴다.
+            bash scripts/check-needs-report.sh "$REPO"
+          fi
+
+      # ---------------------------------------------------------------------
+      # 프롬프트 생성: clone + diff 추출 + 템플릿 치환.
+      # ---------------------------------------------------------------------
+      - name: Build prompt
+        id: prompt
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          FROM_SHA: ${{ steps.gate.outputs.last_sha }}
+          TO_SHA:   ${{ steps.gate.outputs.current_sha }}
+          REPO:     ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+
+          # 매 cell 이 별 runner 지만, 이름에 repo 를 박아 실수 방지.
+          OUT="/tmp/final-prompt-${REPO//\//__}.md"
+
+          # FROM_SHA 가 비면 run-claude-review.sh 가 "INITIAL" 로 취급한다.
+          path=$(
+            OUTPUT_PATH="$OUT" \
+            TARGET_DIR="/tmp/target-${REPO//\//__}" \
+              bash scripts/run-claude-review.sh \
+                "$REPO" \
+                "${FROM_SHA:-}" \
+                "$TO_SHA"
+          )
+
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "[info] prompt bytes: $(wc -c <"$path")" >&2
+
+      # ---------------------------------------------------------------------
+      # Claude CLI: headless 모드로 stdin 에 프롬프트 주입 → 파일로 저장.
+      # 성공 전까진 reports/ 에 파일을 남기지 않도록 mktemp 사용.
+      # ---------------------------------------------------------------------
+      - name: Install Claude Code CLI
+        if: steps.gate.outputs.should_run == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run Claude review
+        id: run
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PROMPT_FILE: ${{ steps.prompt.outputs.path }}
+          REPO: ${{ matrix.repo }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+
+          # ISO 8601 compact: 파일명에 `:` 를 못 쓰므로 `-` 로 대체.
+          TS=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          OUT_DIR="reports/${REPO}"
+          OUT_FILE="${OUT_DIR}/${TS}.md"
+          mkdir -p "$OUT_DIR"
+
+          TMP=$(mktemp)
+          if claude -p --output-format text < "$PROMPT_FILE" > "$TMP"; then
+            if [[ ! -s "$TMP" ]]; then
+              echo "::error::Claude output empty for $REPO"
+              rm -f "$TMP"
+              echo "status=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            # 스키마 + 보안 validator. 실패 시 파일을 reports/ 로 옮기지 않는다
+            # (깨진 리포트 커밋 방지 · 인젝션으로 조작된 risk_level 등 차단).
+            # validator 세부: scripts/validate-report.py
+            if ! python3 scripts/validate-report.py "$TMP" \
+                 --project "$REPO" --strict; then
+              echo "::error::validator rejected output for $REPO — discarding report"
+              echo "::group::rejected output (first 40 lines, for debug)"
+              head -40 "$TMP" >&2 || true
+              echo "::endgroup::"
+              rm -f "$TMP"
+              echo "status=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            mv "$TMP" "$OUT_FILE"
+            {
+              echo "out_file=$OUT_FILE"
+              echo "timestamp=$TS"
+              echo "status=success"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Claude call failed for $REPO (exit $?)"
+            rm -f "$TMP"
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------------
+      # meta.json 업데이트: Claude 호출 성공 이후에만. 실패 시 meta 는 그대로라
+      # 다음 cron 이 같은 범위로 재시도한다.
+      # ---------------------------------------------------------------------
+      - name: Update meta.json
+        if: steps.run.outputs.status == 'success'
+        env:
+          REPO:        ${{ matrix.repo }}
+          CURRENT_SHA: ${{ steps.gate.outputs.current_sha }}
+          OUT_FILE:    ${{ steps.run.outputs.out_file }}
+        run: |
+          set -euo pipefail
+          META="reports/${REPO}/.meta.json"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+
+          if [[ -f "$META" ]]; then
+            PREV_COUNT=$(jq -r '.report_count // 0' "$META")
+          else
+            PREV_COUNT=0
+          fi
+          NEW_COUNT=$((PREV_COUNT + 1))
+
+          jq -n \
+            --arg sha   "$CURRENT_SHA" \
+            --arg at    "$NOW" \
+            --arg file  "$OUT_FILE" \
+            --argjson n "$NEW_COUNT" \
+            '{last_sha: $sha, last_report_at: $at, last_report_file: $file, report_count: $n}' \
+            > "$META"
+
+          echo "[info] meta updated:"
+          cat "$META"
+
+      # ---------------------------------------------------------------------
+      # 커밋 & 푸시. max-parallel=3 × 같은 branch 동시 push 경합 대비 rebase retry.
+      # [skip ci] 는 붙이지 않는다 → deploy.yml 이 트리거돼야 한다.
+      # ---------------------------------------------------------------------
+      - name: Commit and push reports
+        if: steps.run.outputs.status == 'success'
+        env:
+          REPO:        ${{ matrix.repo }}
+          CURRENT_SHA: ${{ steps.gate.outputs.current_sha }}
+          BRANCH:      ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name  "claude-bot"
+          git config user.email "claude-bot@users.noreply.github.com"
+
+          git add "reports/${REPO}/"
+
+          if git diff --staged --quiet; then
+            echo "[info] no changes staged (unexpected, but tolerable)" >&2
+            exit 0
+          fi
+
+          SHORT="${CURRENT_SHA:0:7}"
+          MSG="chore(reports): update ${REPO} (${SHORT})"
+          git commit -m "$MSG"
+
+          # 동시 cell 들이 같은 branch 로 푸시 중. 첫 시도 실패 시 한 번 rebase.
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${BRANCH}"; then
+              echo "[info] pushed on attempt $attempt"
+              break
+            fi
+            echo "[warn] push attempt $attempt failed — fetch + rebase + retry" >&2
+            git fetch origin "$BRANCH"
+            # 충돌은 이론상 없다 (각 cell 은 reports/<다른 repo>/ 만 건드림).
+            git rebase "origin/${BRANCH}" || {
+              echo "::error::rebase conflict on attempt $attempt — aborting"
+              git rebase --abort || true
+              exit 1
+            }
+            if [[ $attempt -eq 3 ]]; then
+              echo "::error::push failed 3x"
+              exit 1
+            fi
+          done
+
+      # ---------------------------------------------------------------------
+      # 이 cell 의 결과 요약을 artifact 로 뽑는다. summary 잡이 수집.
+      # always(): 게이트/Claude/푸시 어디서 실패하든 항상 무언가 남긴다.
+      # ---------------------------------------------------------------------
+      - name: Write cell summary
+        if: always()
+        env:
+          REPO:         ${{ matrix.repo }}
+          SHOULD_RUN:   ${{ steps.gate.outputs.should_run }}
+          REASON:       ${{ steps.gate.outputs.reason }}
+          FIRST_REPORT: ${{ steps.gate.outputs.first_report }}
+          COMMIT_COUNT: ${{ steps.gate.outputs.commit_count }}
+          CURRENT_SHA:  ${{ steps.gate.outputs.current_sha }}
+          RUN_STATUS:   ${{ steps.run.outputs.status }}
+          OUT_FILE:     ${{ steps.run.outputs.out_file }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/summary
+          # matrix.repo 에 `/` 가 들어올 수 있다는 가정 (현재는 없지만 방어적).
+          SAFE="${REPO//\//__}"
+          jq -n \
+            --arg repo         "$REPO" \
+            --arg should_run   "${SHOULD_RUN:-unknown}" \
+            --arg reason       "${REASON:-gate step failed before emit}" \
+            --arg first_report "${FIRST_REPORT:-}" \
+            --arg commit_count "${COMMIT_COUNT:-0}" \
+            --arg current_sha  "${CURRENT_SHA:-}" \
+            --arg run_status   "${RUN_STATUS:-skipped}" \
+            --arg out_file     "${OUT_FILE:-}" \
+            '{repo:$repo, should_run:$should_run, reason:$reason,
+              first_report:$first_report, commit_count:$commit_count,
+              current_sha:$current_sha, run_status:$run_status,
+              out_file:$out_file}' \
+            > "/tmp/summary/${SAFE}.json"
+
+      - name: Upload cell summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.repo }}
+          path: /tmp/summary/*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ===========================================================================
+  # summary — 전 cell 결과 수집 → Actions summary 에 테이블.
+  # ===========================================================================
+  summary:
+    needs: review
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all cell summaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          path: /tmp/summary
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Render summary table
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          FILES=(/tmp/summary/*.json)
+          {
+            echo "# 리뷰 생성 결과"
+            echo ""
+            echo "- **trigger:** \`${{ github.event_name }}\`"
+            echo "- **run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo "- **cells:** ${#FILES[@]}"
+            echo ""
+
+            if (( ${#FILES[@]} == 0 )); then
+              echo "_no cell summaries collected (discover found 0 repos, or upload failed)_"
+              exit 0
+            fi
+
+            echo "| Repo | should_run | status | reason | commits | report |"
+            echo "|---|---|---|---|---|---|"
+            for f in "${FILES[@]}"; do
+              repo=$(jq -r .repo "$f")
+              sr=$(jq -r .should_run "$f")
+              st=$(jq -r .run_status "$f")
+              rn=$(jq -r .reason "$f" | sed 's/|/\\|/g')
+              cc=$(jq -r .commit_count "$f")
+              of=$(jq -r .out_file "$f")
+              if [[ -n "$of" && "$of" != "null" ]]; then
+                rep_cell="\`${of#reports/}\`"
+              else
+                rep_cell="—"
+              fi
+              echo "| \`$repo\` | $sr | $st | $rn | $cc | $rep_cell |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

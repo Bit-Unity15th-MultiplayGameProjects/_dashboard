@@ -1,0 +1,184 @@
+---
+import type { GetStaticPaths } from "astro";
+import { render } from "astro:content";
+import Layout from "../../layouts/Layout.astro";
+import RiskBadge from "../../components/RiskBadge.astro";
+import {
+  getProjectSummaries,
+  type ReportInfo,
+} from "../../lib/reports";
+
+export const getStaticPaths = (async () => {
+  const projects = await getProjectSummaries();
+  const paths: Array<{
+    params: { project: string; date: string };
+    props: {
+      current: ReportInfo;
+      prev: ReportInfo | null;
+      next: ReportInfo | null;
+    };
+  }> = [];
+
+  for (const p of projects) {
+    // reports sorted desc (newest first)
+    p.reports.forEach((r, idx) => {
+      // prev = older report (higher index), next = newer (lower index)
+      const prev = p.reports[idx + 1] ?? null;
+      const next = p.reports[idx - 1] ?? null;
+      paths.push({
+        params: { project: p.project, date: r.slug },
+        props: { current: r, prev, next },
+      });
+    });
+  }
+
+  return paths;
+}) satisfies GetStaticPaths;
+
+interface Props {
+  current: ReportInfo;
+  prev: ReportInfo | null;
+  next: ReportInfo | null;
+}
+
+const { current, prev, next } = Astro.props;
+const entry = current.entry;
+const data = entry.data;
+
+const { Content } = await render(entry);
+
+const BASE = import.meta.env.BASE_URL;
+const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
+
+function reportHref(r: ReportInfo) {
+  return `${base}/${r.project}/${r.slug}/`;
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+}
+---
+
+<Layout title={`${data.project} — ${data.summary}`}>
+  <nav class="mb-6 text-sm flex items-center gap-2">
+    <a
+      href={BASE}
+      class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+    >
+      대시보드
+    </a>
+    <span class="text-slate-400 dark:text-slate-600">/</span>
+    <a
+      href={`${base}/${current.project}/`}
+      class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+    >
+      {current.project}
+    </a>
+  </nav>
+
+  <article>
+    <header
+      class="mb-6 pb-6 border-b border-slate-200 dark:border-slate-800"
+    >
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <RiskBadge level={data.risk_level} />
+        <time class="text-sm text-slate-500 dark:text-slate-400">
+          {formatDate(data.date)}
+        </time>
+      </div>
+
+      <h1
+        class="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100"
+      >
+        {data.summary}
+      </h1>
+
+      <dl class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div>
+          <dt class="text-slate-500 dark:text-slate-500 uppercase tracking-wider">
+            Project
+          </dt>
+          <dd class="mt-0.5 font-mono text-slate-800 dark:text-slate-200">
+            {data.project}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500 dark:text-slate-500 uppercase tracking-wider">
+            Commits
+          </dt>
+          <dd class="mt-0.5 font-mono text-slate-800 dark:text-slate-200 tabular-nums">
+            {data.commit_count}
+          </dd>
+        </div>
+        <div class="col-span-2">
+          <dt class="text-slate-500 dark:text-slate-500 uppercase tracking-wider">
+            Range
+          </dt>
+          <dd class="mt-0.5 font-mono text-slate-800 dark:text-slate-200 truncate">
+            {data.commit_range}
+          </dd>
+        </div>
+      </dl>
+
+      {
+        data.tags.length > 0 && (
+          <div class="mt-4 flex flex-wrap gap-1.5">
+            {data.tags.map((t) => (
+              <span class="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] px-2 py-0.5">
+                #{t}
+              </span>
+            ))}
+          </div>
+        )
+      }
+    </header>
+
+    <div class="report-prose max-w-none">
+      <Content />
+    </div>
+  </article>
+
+  <nav
+    class="mt-10 pt-6 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-3"
+    aria-label="리포트 이동"
+  >
+    {
+      prev ? (
+        <a
+          href={reportHref(prev)}
+          class="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 hover:border-slate-400 dark:hover:border-slate-600 transition"
+        >
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            ← 이전 리포트
+          </div>
+          <div class="mt-1 text-sm text-slate-800 dark:text-slate-200 line-clamp-2">
+            {prev.entry.data.summary}
+          </div>
+        </a>
+      ) : (
+        <div />
+      )
+    }
+    {
+      next ? (
+        <a
+          href={reportHref(next)}
+          class="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 hover:border-slate-400 dark:hover:border-slate-600 transition text-right"
+        >
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            다음 리포트 →
+          </div>
+          <div class="mt-1 text-sm text-slate-800 dark:text-slate-200 line-clamp-2">
+            {next.entry.data.summary}
+          </div>
+        </a>
+      ) : (
+        <div />
+      )
+    }
+  </nav>
+</Layout>

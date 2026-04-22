@@ -1,0 +1,32 @@
+---
+interface Props {
+  level: "low" | "medium" | "high";
+  size?: "sm" | "md";
+}
+
+const { level, size = "md" } = Astro.props;
+
+const styles = {
+  low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-400/20",
+  medium:
+    "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 ring-amber-600/20 dark:ring-amber-400/20",
+  high: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 ring-rose-600/20 dark:ring-rose-400/20",
+}[level];
+
+const labels = {
+  low: "LOW",
+  medium: "MED",
+  high: "HIGH",
+}[level];
+
+const sizes = {
+  sm: "text-[10px] px-1.5 py-0.5",
+  md: "text-xs px-2 py-0.5",
+}[size];
+---
+
+<span
+  class={`inline-flex items-center rounded-full font-semibold tracking-wide ring-1 ring-inset ${styles} ${sizes}`}
+>
+  {labels}
+</span>

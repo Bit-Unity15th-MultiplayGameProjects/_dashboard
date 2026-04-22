@@ -1,0 +1,70 @@
+---
+import RiskBadge from "./RiskBadge.astro";
+
+interface Props {
+  project: string;
+  href: string;
+  date: string; // ISO string
+  summary: string;
+  risk: "low" | "medium" | "high";
+  tags: string[];
+  reportCount: number;
+}
+
+const { project, href, date, summary, risk, tags, reportCount } = Astro.props;
+
+const d = new Date(date);
+const dateLabel = d.toLocaleDateString("ko-KR", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, Math.floor((now - then) / 1000));
+  if (diff < 60) return "방금 전";
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}일 전`;
+  return dateLabel;
+}
+
+const relLabel = relativeTime(date);
+---
+
+<a
+  href={href}
+  class="group block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:border-slate-400 dark:hover:border-slate-600 hover:shadow-sm transition"
+>
+  <div class="flex items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h3
+        class="font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400"
+      >
+        {project}
+      </h3>
+      <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        {relLabel} · 리포트 {reportCount}건
+      </div>
+    </div>
+    <RiskBadge level={risk} />
+  </div>
+
+  <p class="mt-3 text-sm text-slate-700 dark:text-slate-300 line-clamp-2">
+    {summary}
+  </p>
+
+  {
+    tags.length > 0 && (
+      <div class="mt-4 flex flex-wrap gap-1.5">
+        {tags.slice(0, 4).map((t) => (
+          <span class="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] px-2 py-0.5">
+            #{t}
+          </span>
+        ))}
+      </div>
+    )
+  }
+</a>
