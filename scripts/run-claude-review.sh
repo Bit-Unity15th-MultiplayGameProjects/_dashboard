@@ -46,9 +46,15 @@ META_FILE="$ROOT_DIR/reports/$REPO/.meta.json"
 
 [[ -f "$TEMPLATE" ]] || { echo "ERROR: template missing: $TEMPLATE" >&2; exit 1; }
 
+FILE_DIFF_TMP=""
 cleanup() {
   if [[ "$KEEP_TARGET" != "1" ]]; then
     rm -rf "$TARGET_DIR"
+  fi
+  # if/fi 로 감싸야 한다. `[[ -n "" ]] && rm` 는 short-circuit 시 함수의
+  # 마지막 명령이 false 가 되어 trap EXIT 가 그 코드로 스크립트를 죽인다.
+  if [[ -n "$FILE_DIFF_TMP" ]]; then
+    rm -f "$FILE_DIFF_TMP"
   fi
 }
 trap cleanup EXIT
@@ -97,9 +103,24 @@ fi
 
 echo "[info] commit_range: $COMMIT_RANGE" >&2
 
+# Root commit 단일 first-report (TO_SHA == FROM_RESOLVED) 인 경우 위 range 는
+# 빈 diff 가 된다. 이 때는 git 의 magic empty tree (SHA 고정값) 를 from 으로
+# 사용해 root commit 자체의 변경을 전부 보여준다.
+# commit_range frontmatter 표기는 그대로 `<from>..<to>` 형태를 유지해야 zod 통과.
+EMPTY_TREE_SHA="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+DIFF_REF="$COMMIT_RANGE"
+if [[ "${COMMIT_RANGE%%..*}" == "${COMMIT_RANGE##*..}" ]]; then
+  echo "[info] empty range — diffing against empty tree (root commit only)" >&2
+  DIFF_REF="${EMPTY_TREE_SHA}..${TO_SHA}"
+fi
+
 COMMIT_COUNT="$(git -C "$TARGET_DIR" rev-list --count "$COMMIT_RANGE" 2>/dev/null || echo 0)"
-COMMIT_LOG="$(git -C "$TARGET_DIR" log --oneline "$COMMIT_RANGE" 2>/dev/null || true)"
-DIFF_STAT="$(git -C "$TARGET_DIR" diff --stat "$COMMIT_RANGE" 2>/dev/null || true)"
+# rev-list count 가 0 이면 (root commit only) 최소 1 로 보정.
+if (( COMMIT_COUNT == 0 )); then
+  COMMIT_COUNT=1
+fi
+COMMIT_LOG="$(git -C "$TARGET_DIR" log --oneline -n "$COMMIT_COUNT" "$TO_SHA" 2>/dev/null || true)"
+DIFF_STAT="$(git -C "$TARGET_DIR" diff --stat "$DIFF_REF" 2>/dev/null || true)"
 
 # ---- diff 추출 + 크기 제한 -------------------------------------------------
 # 1) full diff 시도
@@ -107,7 +128,7 @@ DIFF_STAT="$(git -C "$TARGET_DIR" diff --stat "$COMMIT_RANGE" 2>/dev/null || tru
 #    - diff --stat 에서 변경량 많은 순서로 파일 목록을 얻고
 #    - 바이트 budget 이 남는 동안 파일별 diff 를 쌓음
 
-FULL_DIFF="$(git -C "$TARGET_DIR" diff "$COMMIT_RANGE" 2>/dev/null || true)"
+FULL_DIFF="$(git -C "$TARGET_DIR" diff "$DIFF_REF" 2>/dev/null || true)"
 FULL_BYTES="$(printf '%s' "$FULL_DIFF" | wc -c | awk '{print $1}')"
 FULL_LINES="$(printf '%s\n' "$FULL_DIFF" | wc -l | awk '{print $1}')"
 
@@ -119,7 +140,7 @@ else
 
   # `git diff --numstat` 로 (added, removed, path) 얻고 총 변경량 기준 정렬
   mapfile -t SORTED_FILES < <(
-    git -C "$TARGET_DIR" diff --numstat "$COMMIT_RANGE" \
+    git -C "$TARGET_DIR" diff --numstat "$DIFF_REF" \
       | awk '{
           a = ($1 == "-") ? 0 : $1
           d = ($2 == "-") ? 0 : $2
@@ -134,19 +155,32 @@ else
   INCLUDED=0
   SKIPPED=0
 
+  # 단일 파일 diff 가 다중 MB 일 수 있으므로 bash 변수에 통째로 담지 않고
+  # 임시 파일을 거친다. 이렇게 하면 (1) env/argv 크기 한계와 (2)
+  # `printf | head -c` SIGPIPE+pipefail 충돌을 둘 다 피한다.
+  FILE_DIFF_TMP="$(mktemp)"
+
   for f in "${SORTED_FILES[@]}"; do
-    # 파일별 diff 를 추출 (단일 -- <path> 한정)
-    FILE_DIFF="$(git -C "$TARGET_DIR" diff "$COMMIT_RANGE" -- "$f" 2>/dev/null || true)"
-    FBYTES="$(printf '%s' "$FILE_DIFF" | wc -c | awk '{print $1}')"
+    : >"$FILE_DIFF_TMP"
+    git -C "$TARGET_DIR" diff "$DIFF_REF" -- "$f" >"$FILE_DIFF_TMP" 2>/dev/null || true
+    FBYTES="$(wc -c <"$FILE_DIFF_TMP" | awk '{print $1}')"
 
     if (( FBYTES == 0 )); then
       continue
     fi
 
-    # 한 파일이 단독으로 예산을 넘기면 그 파일의 상단만 잘라 포함
+    # 한 파일이 단독으로 예산을 넘기면 그 파일의 상단만 잘라 포함.
     if (( FBYTES > BYTES_LEFT )); then
       if (( BYTES_LEFT > 2048 )); then
-        FILE_DIFF_TRUNC="$(printf '%s' "$FILE_DIFF" | head -c "$BYTES_LEFT")
+        FILE_DIFF_TRUNC="$(
+          FILE_DIFF_TMP="$FILE_DIFF_TMP" BYTES_LEFT="$BYTES_LEFT" python3 - <<'PY'
+import os, sys
+path = os.environ["FILE_DIFF_TMP"]
+n = int(os.environ["BYTES_LEFT"])
+with open(path, "rb") as f:
+    sys.stdout.buffer.write(f.read(n))
+PY
+        )
 ... [truncated: single-file diff exceeded budget] ..."
         SAMPLE+=$'\n'"$FILE_DIFF_TRUNC"
         BYTES_LEFT=0
@@ -158,7 +192,7 @@ else
       fi
     fi
 
-    SAMPLE+=$'\n'"$FILE_DIFF"
+    SAMPLE+=$'\n'"$(cat "$FILE_DIFF_TMP")"
     BYTES_LEFT=$((BYTES_LEFT - FBYTES))
     INCLUDED=$((INCLUDED + 1))
   done
@@ -301,12 +335,18 @@ STUDENT_CONTROLLED = {
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
 
+def _scrub(s: str) -> str:
+    """Drop lone surrogates that creep in via env vars when bash exports
+    diff bytes that aren't valid UTF-8 (Unity meta/binary blobs).
+    Without this, the final f.write() raises UnicodeEncodeError."""
+    return s.encode("utf-8", "replace").decode("utf-8", "replace")
+
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
     "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
 ):
-    value = os.environ.get(key, "")
+    value = _scrub(os.environ.get(key, ""))
     if key in STUDENT_CONTROLLED:
         value = BOUNDARY_TAG_RE.sub("⟨boundary-filtered⟩", value)
     tmpl = tmpl.replace("{{" + key + "}}", value)
