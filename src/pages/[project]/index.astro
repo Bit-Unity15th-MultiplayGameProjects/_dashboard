@@ -269,6 +269,7 @@ function formatDateShort(iso: string) {
                   data-item-kind="TODO"
                   data-item-title={t.title}
                   data-item-files={JSON.stringify(t.files)}
+                  data-item-details={t.details ?? ""}
                   style={`display:grid;grid-template-columns:28px 1fr auto;gap:10px;padding:10px 6px;border-bottom:${i < todos.length - 1 ? "1px dashed var(--border-subtle)" : "none"};align-items:start;border-radius:3px;`}
                 >
                   <span
@@ -334,6 +335,7 @@ function formatDateShort(iso: string) {
                   data-item-kind="Backlog"
                   data-item-title={b.title}
                   data-item-files={JSON.stringify(b.files)}
+                  data-item-details={b.details ?? ""}
                   style={`display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:9px 6px;border-bottom:${i < carryOver.length - 1 ? "1px dashed var(--border-subtle)" : "none"};border-radius:3px;`}
                 >
                   <span

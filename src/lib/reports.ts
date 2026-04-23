@@ -99,16 +99,21 @@ export function chronologicalSnapshots(p: ProjectSummary): ChartSnapshot[] {
 // frontmatter 의 todos / backlogs / resolved_from_backlog 는 string 또는
 // {title, files?} 객체 union. 호출부 단순화를 위해 한 형태로 평탄화.
 
-export type RawItem = string | { title: string; files?: string[] };
+export type RawItem =
+  | string
+  | { title: string; files?: string[]; details?: string };
 
 export interface NormalizedItem {
   title: string;
   files: string[];
+  details?: string;
 }
 
 export function normalizeItem(item: RawItem): NormalizedItem {
   if (typeof item === "string") return { title: item, files: [] };
-  return { title: item.title, files: item.files ?? [] };
+  const out: NormalizedItem = { title: item.title, files: item.files ?? [] };
+  if (item.details && item.details.trim()) out.details = item.details;
+  return out;
 }
 
 export function normalizeItems(items: RawItem[] | undefined): NormalizedItem[] {
