@@ -22,7 +22,8 @@ default (no --strict):
   6. date 가 ISO 8601 with offset
   7. progress_estimate 는 0-100 정수
   8. doc_scores.{design,technical,spec} 는 각각 0-10 정수
-  9. tags / todos / backlogs / resolved_from_backlog 는 문자열 배열
+  9. tags 는 문자열 배열. todos / backlogs / resolved_from_backlog 의 각 항목은
+     문자열 또는 `{title:str, files?:list[str]}` 객체 (옛 리포트 호환)
   10. (--project 지정 시) project 필드가 입력 repo 와 일치
   11. 본문 필수 6 개 섹션 헤딩. resolved_from_backlog 가 비어있지 않으면 § 7 도 필수
   12. content 어디에도 알려진 secret 패턴이 없어야 함 (Anthropic OAuth / GitHub PAT 등)
@@ -193,21 +194,61 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
                             f"doc_scores.{axis} 는 0-10 정수여야 함 (got: {v!r})"
                         )
 
-    # tags / todos / backlogs / resolved_from_backlog — 문자열 배열
-    for arr_field in ("tags", "todos", "backlogs", "resolved_from_backlog"):
+    # tags — 순수 문자열 배열
+    if "tags" in fm:
+        v = fm["tags"]
+        if not isinstance(v, list):
+            errors.append(f"tags 는 배열이어야 함 (got: {type(v).__name__})")
+        else:
+            for i, item in enumerate(v):
+                if not isinstance(item, str):
+                    errors.append(
+                        f"tags[{i}] 는 문자열이어야 함 (got: {type(item).__name__})"
+                    )
+
+    # todos / backlogs / resolved_from_backlog — 각 항목은 str 또는 {title, files?}
+    for arr_field in ("todos", "backlogs", "resolved_from_backlog"):
         if arr_field in fm:
             v = fm[arr_field]
             if not isinstance(v, list):
                 errors.append(
                     f"{arr_field} 는 배열이어야 함 (got: {type(v).__name__})"
                 )
-            else:
-                for i, item in enumerate(v):
-                    if not isinstance(item, str):
+                continue
+            for i, item in enumerate(v):
+                if isinstance(item, str):
+                    if not item.strip():
+                        errors.append(f"{arr_field}[{i}] 가 빈 문자열")
+                elif isinstance(item, dict):
+                    title = item.get("title")
+                    if not isinstance(title, str) or not title.strip():
                         errors.append(
-                            f"{arr_field}[{i}] 는 문자열이어야 함 "
-                            f"(got: {type(item).__name__})"
+                            f"{arr_field}[{i}].title 누락 또는 비문자열"
                         )
+                    if "files" in item:
+                        files = item["files"]
+                        if not isinstance(files, list):
+                            errors.append(
+                                f"{arr_field}[{i}].files 는 배열이어야 함 "
+                                f"(got: {type(files).__name__})"
+                            )
+                        else:
+                            for j, fp in enumerate(files):
+                                if not isinstance(fp, str):
+                                    errors.append(
+                                        f"{arr_field}[{i}].files[{j}] 는 문자열이어야 함"
+                                    )
+                    extra = set(item.keys()) - {"title", "files"}
+                    if extra:
+                        errors.append(
+                            f"{arr_field}[{i}] 에 허용되지 않은 키: {sorted(extra)} "
+                            "(허용: title, files)"
+                        )
+                else:
+                    errors.append(
+                        f"{arr_field}[{i}] 는 문자열 또는 객체여야 함 "
+                        f"(got: {type(item).__name__})"
+                    )
 
     # 본문 필수 섹션 헤딩
     for h in REQUIRED_HEADINGS:

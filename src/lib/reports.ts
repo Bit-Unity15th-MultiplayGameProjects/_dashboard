@@ -95,51 +95,87 @@ export function chronologicalSnapshots(p: ProjectSummary): ChartSnapshot[] {
   });
 }
 
-export interface BacklogItemWithAge {
-  text: string;
+// ─── item normalization ───────────────────────────────────────────────
+// frontmatter 의 todos / backlogs / resolved_from_backlog 는 string 또는
+// {title, files?} 객체 union. 호출부 단순화를 위해 한 형태로 평탄화.
+
+export type RawItem = string | { title: string; files?: string[] };
+
+export interface NormalizedItem {
+  title: string;
+  files: string[];
+}
+
+export function normalizeItem(item: RawItem): NormalizedItem {
+  if (typeof item === "string") return { title: item, files: [] };
+  return { title: item.title, files: item.files ?? [] };
+}
+
+export function normalizeItems(items: RawItem[] | undefined): NormalizedItem[] {
+  return (items ?? []).map(normalizeItem);
+}
+
+export interface BacklogItemWithAge extends NormalizedItem {
   firstSeen: string; // ISO date string
   age: number; // # of reports the item appeared in (since firstSeen, inclusive)
 }
 
 /**
  * 최신 리포트의 backlogs[] 각 항목에 firstSeen / age 부여.
- * - 오래된 → 최신 순으로 reports 를 훑어 텍스트 등장 횟수를 셈.
+ * - 오래된 → 최신 순으로 reports 를 훑어 title 등장 횟수를 셈 (files 무시).
  * - age 는 항목이 backlog 에 머문 총 리포트 수.
  */
 export function backlogWithAges(p: ProjectSummary): BacklogItemWithAge[] {
   const chrono = [...p.reports].reverse();
   const latest = p.reports[0];
   if (!latest) return [];
-  const latestBacklogs = latest.entry.data.backlogs ?? [];
+  const latestBacklogs = normalizeItems(latest.entry.data.backlogs);
 
-  return latestBacklogs.map((text) => {
+  return latestBacklogs.map((item) => {
     let firstSeen = latest.entry.data.date;
     let age = 0;
     for (const r of chrono) {
-      const list = r.entry.data.backlogs ?? [];
-      if (list.includes(text)) {
+      const titles = normalizeItems(r.entry.data.backlogs).map((b) => b.title);
+      if (titles.includes(item.title)) {
         if (age === 0) firstSeen = r.entry.data.date;
         age += 1;
       }
     }
-    return { text, firstSeen, age: Math.max(1, age) };
+    return { ...item, firstSeen, age: Math.max(1, age) };
   });
 }
 
-export interface ResolvedItem {
-  text: string;
-  resolvedDate: string; // ISO
+export interface ResolvedItem extends NormalizedItem {
+  resolvedDate: string; // ISO — 해결된 리포트의 작성일
+  firstSeen: string; // ISO — backlog 에 처음 등장한 리포트의 작성일 (없으면 resolvedDate)
 }
 
 /**
  * 전체 history 에서 해결된 항목을 누적. 최신순 (newest resolution first).
+ * 각 항목의 firstSeen 은 그 title 이 backlogs 에 처음 등장한 시점.
+ * 한 번도 backlog 에 안 잡혔던 항목 (드물지만 가능) 은 firstSeen = resolvedDate.
  */
 export function resolvedHistory(p: ProjectSummary): ResolvedItem[] {
+  // 오래된 → 최신 순으로 훑으며 title → firstSeen 누적.
+  const chrono = [...p.reports].reverse();
+  const firstSeenByTitle = new Map<string, string>();
+  for (const r of chrono) {
+    for (const b of normalizeItems(r.entry.data.backlogs)) {
+      if (!firstSeenByTitle.has(b.title)) {
+        firstSeenByTitle.set(b.title, r.entry.data.date);
+      }
+    }
+  }
+
   const out: ResolvedItem[] = [];
   for (const r of p.reports) {
-    const list = r.entry.data.resolved_from_backlog ?? [];
-    for (const text of list) {
-      out.push({ text, resolvedDate: r.entry.data.date });
+    const items = normalizeItems(r.entry.data.resolved_from_backlog);
+    for (const item of items) {
+      out.push({
+        ...item,
+        resolvedDate: r.entry.data.date,
+        firstSeen: firstSeenByTitle.get(item.title) ?? r.entry.data.date,
+      });
     }
   }
   return out;
@@ -152,16 +188,16 @@ export interface BacklogSnapshot {
   date: string;
   slug: string;
   summary: string;
-  backlogs: string[];
-  resolved: string[];
+  backlogs: NormalizedItem[];
+  resolved: NormalizedItem[];
 }
 export function backlogTimeline(p: ProjectSummary): BacklogSnapshot[] {
   return p.reports.map((r) => ({
     date: r.entry.data.date,
     slug: r.slug,
     summary: r.entry.data.summary,
-    backlogs: r.entry.data.backlogs ?? [],
-    resolved: r.entry.data.resolved_from_backlog ?? [],
+    backlogs: normalizeItems(r.entry.data.backlogs),
+    resolved: normalizeItems(r.entry.data.resolved_from_backlog),
   }));
 }
 

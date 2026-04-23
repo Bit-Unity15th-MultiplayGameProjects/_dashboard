@@ -1,0 +1,176 @@
+---
+/**
+ * TODO / Backlog 항목 상세 모달.
+ *
+ * 단일 dialog 인스턴스를 페이지 하단에 두고, 각 항목 row 가 click 시
+ * `data-item-title` / `data-item-files` 를 읽어 모달을 채워 보여준다.
+ * (항목마다 dialog 를 만들면 DOM 이 불필요하게 부풀어서 위임 방식 채택.)
+ *
+ * file 경로는 GitHub blob URL (HEAD ref) 로 링크. branch 가 main 이든
+ * master 든 HEAD 가 알아서 따라간다.
+ */
+interface Props {
+  org: string;
+  project: string;
+}
+const { org, project } = Astro.props;
+const repoBase = `https://github.com/${org}/${project}/blob/HEAD/`;
+---
+
+<dialog
+  id="item-detail-dialog"
+  data-repo-base={repoBase}
+  style="width:min(92vw, 560px);max-height:80vh;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--bg-1);color:var(--fg-1);font-family:var(--sans);"
+>
+  <div
+    style="display:flex;align-items:flex-start;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-1);"
+  >
+    <div style="min-width:0;flex:1;">
+      <span
+        id="item-detail-kind"
+        style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.08em;text-transform:uppercase;"
+      ></span>
+      <h3
+        id="item-detail-title"
+        style="margin:4px 0 0;font-size:14px;font-weight:600;line-height:1.5;color:var(--fg-1);word-break:break-word;"
+      ></h3>
+    </div>
+    <button
+      type="button"
+      data-close-item
+      aria-label="닫기"
+      style="background:transparent;border:none;font-family:var(--mono);font-size:18px;color:var(--fg-3);cursor:pointer;padding:4px 8px;border-radius:3px;"
+      >×</button
+    >
+  </div>
+
+  <div
+    style="padding:16px 20px;overflow-y:auto;max-height:calc(80vh - 64px);"
+  >
+    <div id="item-detail-files-wrap">
+      <span
+        style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.08em;text-transform:uppercase;"
+        >관련 파일</span
+      >
+      <ul
+        id="item-detail-files"
+        style="margin:8px 0 0;padding:0;list-style:none;"
+      >
+      </ul>
+    </div>
+    <p
+      id="item-detail-empty"
+      style="margin:0;font-size:12.5px;color:var(--fg-3);font-style:italic;"
+    >
+      이 항목엔 연관된 파일 경로가 기록돼 있지 않습니다.
+    </p>
+  </div>
+</dialog>
+
+<style is:global>
+  dialog#item-detail-dialog::backdrop {
+    background: rgba(10, 10, 14, 0.6);
+    backdrop-filter: blur(2px);
+  }
+  .item-row {
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .item-row:hover {
+    background: var(--bg-2);
+  }
+  .item-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+</style>
+
+<script is:inline>
+  (function () {
+    const dialog = document.getElementById("item-detail-dialog");
+    if (!dialog) return;
+    const repoBase = dialog.dataset.repoBase || "";
+    const titleEl = document.getElementById("item-detail-title");
+    const kindEl = document.getElementById("item-detail-kind");
+    const filesUl = document.getElementById("item-detail-files");
+    const filesWrap = document.getElementById("item-detail-files-wrap");
+    const emptyEl = document.getElementById("item-detail-empty");
+
+    function open() {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    function close() {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    }
+
+    function fillFromRow(row) {
+      const title = row.dataset.itemTitle || "";
+      const kind = row.dataset.itemKind || "";
+      let files = [];
+      try {
+        files = JSON.parse(row.dataset.itemFiles || "[]");
+      } catch (_) {
+        files = [];
+      }
+      titleEl.textContent = title;
+      kindEl.textContent = kind;
+
+      filesUl.innerHTML = "";
+      if (Array.isArray(files) && files.length > 0) {
+        filesWrap.style.display = "";
+        emptyEl.style.display = "none";
+        for (const f of files) {
+          const li = document.createElement("li");
+          li.style.cssText =
+            "padding:8px 0;border-bottom:1px dashed var(--border-subtle);font-family:var(--mono);font-size:12px;line-height:1.5;word-break:break-all;";
+          const a = document.createElement("a");
+          a.href = repoBase + String(f).replace(/^\/+/, "");
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = String(f);
+          a.style.cssText = "color:var(--accent);text-decoration:none;";
+          li.appendChild(a);
+          filesUl.appendChild(li);
+        }
+      } else {
+        filesWrap.style.display = "none";
+        emptyEl.style.display = "";
+      }
+    }
+
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest("[data-item-title]");
+      if (!row) return;
+      fillFromRow(row);
+      open();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest("[data-item-title]");
+      if (!row) return;
+      e.preventDefault();
+      fillFromRow(row);
+      open();
+    });
+
+    document
+      .querySelectorAll("[data-close-item]")
+      .forEach((btn) => btn.addEventListener("click", close));
+    dialog.addEventListener("click", (e) => {
+      const rect = dialog.getBoundingClientRect();
+      const inside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!inside) close();
+    });
+  })();
+</script>

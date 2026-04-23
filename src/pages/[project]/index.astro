@@ -14,13 +14,17 @@ import MultiLineChart from "../../components/MultiLineChart.astro";
 import SmallMultiple from "../../components/SmallMultiple.astro";
 import AgeBadge from "../../components/AgeBadge.astro";
 import BacklogHistoryDialog from "../../components/BacklogHistoryDialog.astro";
+import ItemDetailDialog from "../../components/ItemDetailDialog.astro";
 import {
   getProjectSummaries,
   chronologicalSnapshots,
   backlogWithAges,
   resolvedHistory,
+  normalizeItems,
   type ProjectSummary,
 } from "../../lib/reports";
+
+const ORG = "Bit-Unity15th-MultiplayGameProjects";
 
 export const getStaticPaths = (async () => {
   const projects = await getProjectSummaries();
@@ -48,7 +52,7 @@ const last = snapshots[snapshots.length - 1];
 
 const carryOver = backlogWithAges(summary);
 const resolved = resolvedHistory(summary);
-const todos = latestData.todos ?? [];
+const todos = normalizeItems(latestData.todos);
 
 const docAvgLatest = (last.design + last.technical + last.spec) / 3;
 const docAvgFirst = (first.design + first.technical + first.spec) / 3;
@@ -259,7 +263,13 @@ function formatDateShort(iso: string) {
             >
               {todos.map((t, i) => (
                 <li
-                  style={`display:grid;grid-template-columns:28px 1fr;gap:10px;padding:10px 0;border-bottom:${i < todos.length - 1 ? "1px dashed var(--border-subtle)" : "none"};align-items:start;`}
+                  class="item-row"
+                  tabindex="0"
+                  role="button"
+                  data-item-kind="TODO"
+                  data-item-title={t.title}
+                  data-item-files={JSON.stringify(t.files)}
+                  style={`display:grid;grid-template-columns:28px 1fr auto;gap:10px;padding:10px 6px;border-bottom:${i < todos.length - 1 ? "1px dashed var(--border-subtle)" : "none"};align-items:start;border-radius:3px;`}
                 >
                   <span
                     style="font-family:var(--mono);font-size:11px;color:var(--fg-3);padding-top:2px;"
@@ -267,8 +277,15 @@ function formatDateShort(iso: string) {
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <span style="font-size:13px;line-height:1.55;color:var(--fg-1);">
-                    {t}
+                    {t.title}
                   </span>
+                  {t.files.length > 0 && (
+                    <span
+                      style="font-family:var(--mono);font-size:10px;color:var(--accent);padding-top:4px;white-space:nowrap;"
+                    >
+                      {t.files.length} file{t.files.length > 1 ? "s" : ""}
+                    </span>
+                  )}
                 </li>
               ))}
             </ol>
@@ -311,16 +328,27 @@ function formatDateShort(iso: string) {
             >
               {carryOver.map((b, i) => (
                 <li
-                  style={`display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:9px 0;border-bottom:${i < carryOver.length - 1 ? "1px dashed var(--border-subtle)" : "none"};`}
+                  class="item-row"
+                  tabindex="0"
+                  role="button"
+                  data-item-kind="Backlog"
+                  data-item-title={b.title}
+                  data-item-files={JSON.stringify(b.files)}
+                  style={`display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:9px 6px;border-bottom:${i < carryOver.length - 1 ? "1px dashed var(--border-subtle)" : "none"};border-radius:3px;`}
                 >
                   <span
                     style="font-size:12.5px;line-height:1.5;color:var(--fg-1);"
                   >
-                    {b.text}
+                    {b.title}
                     <span
                       style="display:block;font-family:var(--mono);font-size:10px;color:var(--fg-3);margin-top:2px;"
                     >
                       first seen · {formatDateShort(b.firstSeen)}
+                      {b.files.length > 0 && (
+                        <span style="margin-left:8px;color:var(--accent);">
+                          · {b.files.length} file{b.files.length > 1 ? "s" : ""}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <AgeBadge age={b.age} />
@@ -394,6 +422,8 @@ function formatDateShort(iso: string) {
     carryOver={carryOver}
     resolved={resolved}
   />
+
+  <ItemDetailDialog org={ORG} project={project} />
 
   <Footer />
 </Layout>

@@ -236,8 +236,19 @@ except yaml.YAMLError:
     sys.exit(0)
 items = fm.get("backlogs") or []
 for item in items:
+    # 옛 형식 (string) / 신규 형식 ({title, files?}) 모두 처리.
     if isinstance(item, str):
         print(f"- {item}")
+    elif isinstance(item, dict):
+        title = item.get("title")
+        if not isinstance(title, str):
+            continue
+        files = item.get("files") or []
+        if isinstance(files, list) and files:
+            joined = ", ".join(str(f) for f in files if isinstance(f, str))
+            print(f"- {title}  [files: {joined}]")
+        else:
+            print(f"- {title}")
 PY
   )"
   if [[ -n "$EXTRACTED" ]]; then
