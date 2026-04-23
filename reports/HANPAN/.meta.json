@@ -2,5 +2,9 @@
   "last_sha": "ae6c15b93d6bb72ad5c84e4ca241323d6e6b9acb",
   "last_report_at": "2026-04-23T08:18:40+00:00",
   "last_report_file": "reports/HANPAN/2026-04-23T08-17-15Z.md",
-  "report_count": 2
+  "report_count": 2,
+  "last_commit_at": "2026-04-23T01:50:54Z",
+  "contributors": [
+    "thswngus94-dev"
+  ]
 }

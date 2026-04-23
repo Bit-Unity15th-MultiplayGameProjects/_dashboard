@@ -22,7 +22,7 @@ ORG="${ORG:-Bit-Unity15th-MultiplayGameProjects}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 command -v gh >/dev/null || { echo "gh CLI required" >&2; exit 1; }
-command -v jq >/dev/null || { echo "jq required" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 required" >&2; exit 1; }
 
 updated=0
 skipped=0
@@ -32,9 +32,16 @@ for meta in "$ROOT_DIR"/reports/*/.meta.json; do
   [[ -f "$meta" ]] || continue
   repo="$(basename "$(dirname "$meta")")"
 
-  has_at="$(jq 'has("last_commit_at")' "$meta")"
-  has_cs="$(jq 'has("contributors")' "$meta")"
-  if [[ "$has_at" == "true" && "$has_cs" == "true" ]]; then
+  # 이미 채워졌는지 검사 (python).
+  has_both="$(
+    META_FILE="$meta" python3 -c '
+import json, os
+with open(os.environ["META_FILE"], encoding="utf-8") as f:
+    m = json.load(f)
+print("true" if ("last_commit_at" in m and "contributors" in m) else "false")
+'
+  )"
+  if [[ "$has_both" == "true" ]]; then
     echo "[skip] $repo (already populated)" >&2
     skipped=$((skipped + 1))
     continue
@@ -62,14 +69,21 @@ for meta in "$ROOT_DIR"/reports/*/.meta.json; do
     continue
   fi
 
-  tmp="$(mktemp)"
-  jq \
-    --arg at "$last_at" \
-    --argjson cs "$contributors_json" \
-    '. + {last_commit_at: $at, contributors: $cs}' \
-    "$meta" > "$tmp"
-  mv "$tmp" "$meta"
-  echo "  [ok] last_commit_at=$last_at contributors=$(echo "$contributors_json" | jq 'length')" >&2
+  META_FILE="$meta" LAST_AT="$last_at" CONTRIBUTORS_JSON="$contributors_json" \
+    python3 -c '
+import json, os
+meta_path = os.environ["META_FILE"]
+with open(meta_path, encoding="utf-8") as f:
+    m = json.load(f)
+m["last_commit_at"] = os.environ["LAST_AT"]
+m["contributors"] = json.loads(os.environ["CONTRIBUTORS_JSON"] or "[]")
+with open(meta_path, "w", encoding="utf-8") as f:
+    json.dump(m, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+'
+
+  n="$(CJ="$contributors_json" python3 -c "import json,os; print(len(json.loads(os.environ['CJ'] or '[]')))" 2>/dev/null || echo "?")"
+  echo "  [ok] last_commit_at=$last_at contributors=$n" >&2
   updated=$((updated + 1))
 done
 

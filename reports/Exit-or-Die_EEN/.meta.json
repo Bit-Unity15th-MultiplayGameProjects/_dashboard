@@ -2,5 +2,9 @@
   "last_sha": "e60e0b493c2db1cc76cee4ca412c1241b29e6c24",
   "last_report_at": "2026-04-22T10:47:29+00:00",
   "last_report_file": "reports/Exit-or-Die_EEN/2026-04-22T10-46-22Z.md",
-  "report_count": 2
+  "report_count": 2,
+  "last_commit_at": "2026-04-22T07:33:41Z",
+  "contributors": [
+    "kimin896-sudo"
+  ]
 }
