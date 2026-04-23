@@ -1,0 +1,41 @@
+---
+/**
+ * Priority badge — Critical / High / Medium / Low.
+ * Critical 만 filled, 나머지는 outlined (시각적 가중치 차등).
+ * size="sm" 은 row-inline 용 작은 마크, default 는 dialog/header 용.
+ */
+import { PRIORITY_LABEL, type Priority } from "../lib/reports";
+
+interface Props {
+  priority?: Priority;
+  size?: "sm" | "md";
+}
+
+const { priority, size = "sm" } = Astro.props;
+
+const padding = size === "sm" ? "1px 5px" : "2px 7px";
+const fontSize = size === "sm" ? "10px" : "11px";
+const fontWeight = priority === "critical" ? 700 : 600;
+
+let style = "";
+if (priority === "critical") {
+  style = `background:var(--prio-critical-bg);color:var(--prio-critical-fg);`;
+} else if (priority === "high") {
+  style = `background:transparent;color:var(--prio-high-fg);border:1px solid var(--prio-high-fg);`;
+} else if (priority === "medium") {
+  style = `background:transparent;color:var(--prio-medium-fg);border:1px solid var(--prio-medium-fg);`;
+} else if (priority === "low") {
+  style = `background:transparent;color:var(--prio-low-fg);border:1px solid var(--prio-low-fg);`;
+} else {
+  style = `background:transparent;color:var(--fg-3);border:1px dashed var(--border);`;
+}
+---
+
+<span
+  class="priority-badge"
+  data-priority={priority ?? "unset"}
+  style={`display:inline-block;font-family:var(--mono);font-size:${fontSize};font-weight:${fontWeight};padding:${padding};border-radius:3px;letter-spacing:0.04em;line-height:1.2;${style}`}
+  title={priority ? `우선순위: ${priority}` : "우선순위 미설정"}
+>
+  {priority ? PRIORITY_LABEL[priority] : "—"}
+</span>

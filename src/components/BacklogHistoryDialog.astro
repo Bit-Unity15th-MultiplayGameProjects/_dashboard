@@ -1,5 +1,6 @@
 ---
 import AgeBadge from "./AgeBadge.astro";
+import PriorityBadge from "./PriorityBadge.astro";
 import type { BacklogItemWithAge, ResolvedItem } from "../lib/reports";
 
 /**
@@ -78,8 +79,10 @@ const carrySorted = [...carryOver].sort((a, b) => b.age - a.age);
                 data-item-title={b.title}
                 data-item-files={JSON.stringify(b.files)}
                 data-item-details={b.details ?? ""}
-                style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px dashed var(--border-subtle);border-radius:3px;"
+                data-item-priority={b.priority ?? ""}
+                style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px dashed var(--border-subtle);border-radius:3px;"
               >
+                <PriorityBadge priority={b.priority} />
                 <span style="font-size:12.5px;line-height:1.55;color:var(--fg-1);">
                   {b.title}
                   <span

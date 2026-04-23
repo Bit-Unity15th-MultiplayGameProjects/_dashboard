@@ -26,10 +26,18 @@ const repoBase = `https://github.com/${org}/${project}/blob/HEAD/`;
     style="display:flex;align-items:flex-start;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-1);"
   >
     <div style="min-width:0;flex:1;">
-      <span
-        id="item-detail-kind"
-        style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.08em;text-transform:uppercase;"
-      ></span>
+      <div
+        style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
+      >
+        <span
+          id="item-detail-kind"
+          style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.08em;text-transform:uppercase;"
+        ></span>
+        <span
+          id="item-detail-priority"
+          style="display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;letter-spacing:0.04em;line-height:1.2;"
+        ></span>
+      </div>
       <h3
         id="item-detail-title"
         style="margin:4px 0 0;font-size:14px;font-weight:600;line-height:1.5;color:var(--fg-1);word-break:break-word;"
@@ -102,11 +110,35 @@ const repoBase = `https://github.com/${org}/${project}/blob/HEAD/`;
     const repoBase = dialog.dataset.repoBase || "";
     const titleEl = document.getElementById("item-detail-title");
     const kindEl = document.getElementById("item-detail-kind");
+    const prioEl = document.getElementById("item-detail-priority");
     const detailsEl = document.getElementById("item-detail-details");
     const detailsWrap = document.getElementById("item-detail-details-wrap");
     const filesUl = document.getElementById("item-detail-files");
     const filesWrap = document.getElementById("item-detail-files-wrap");
     const emptyEl = document.getElementById("item-detail-empty");
+
+    const PRIO_LABEL = { critical: "P0", high: "P1", medium: "P2", low: "P3" };
+    function applyPriority(p) {
+      if (!p || !PRIO_LABEL[p]) {
+        prioEl.style.display = "none";
+        return;
+      }
+      prioEl.style.display = "";
+      prioEl.textContent = PRIO_LABEL[p] + " · " + p.toUpperCase();
+      // 인라인 style — global.css 의 prio-* 토큰 사용
+      if (p === "critical") {
+        prioEl.style.cssText +=
+          ";background:var(--prio-critical-bg);color:var(--prio-critical-fg);border:none;font-weight:700;";
+      } else {
+        const color =
+          p === "high"
+            ? "var(--prio-high-fg)"
+            : p === "medium"
+              ? "var(--prio-medium-fg)"
+              : "var(--prio-low-fg)";
+        prioEl.style.cssText += `;background:transparent;color:${color};border:1px solid ${color};font-weight:600;`;
+      }
+    }
 
     function open() {
       if (typeof dialog.showModal === "function") dialog.showModal();
@@ -121,6 +153,7 @@ const repoBase = `https://github.com/${org}/${project}/blob/HEAD/`;
       const title = row.dataset.itemTitle || "";
       const kind = row.dataset.itemKind || "";
       const details = row.dataset.itemDetails || "";
+      const priority = row.dataset.itemPriority || "";
       let files = [];
       try {
         files = JSON.parse(row.dataset.itemFiles || "[]");
@@ -129,6 +162,10 @@ const repoBase = `https://github.com/${org}/${project}/blob/HEAD/`;
       }
       titleEl.textContent = title;
       kindEl.textContent = kind;
+      // priority style 은 매번 cssText 누적 방지를 위해 reset 후 재적용
+      prioEl.style.cssText =
+        "display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;letter-spacing:0.04em;line-height:1.2;";
+      applyPriority(priority);
 
       const hasDetails = details.trim().length > 0;
       const hasFiles = Array.isArray(files) && files.length > 0;

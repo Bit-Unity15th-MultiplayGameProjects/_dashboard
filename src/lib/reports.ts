@@ -99,22 +99,51 @@ export function chronologicalSnapshots(p: ProjectSummary): ChartSnapshot[] {
 // frontmatter 의 todos / backlogs / resolved_from_backlog 는 string 또는
 // {title, files?} 객체 union. 호출부 단순화를 위해 한 형태로 평탄화.
 
+export type Priority = "critical" | "high" | "medium" | "low";
+
 export type RawItem =
   | string
-  | { title: string; files?: string[]; details?: string };
+  | {
+      title: string;
+      files?: string[];
+      details?: string;
+      priority?: Priority;
+    };
 
 export interface NormalizedItem {
   title: string;
   files: string[];
   details?: string;
+  priority?: Priority;
 }
 
 export function normalizeItem(item: RawItem): NormalizedItem {
   if (typeof item === "string") return { title: item, files: [] };
   const out: NormalizedItem = { title: item.title, files: item.files ?? [] };
   if (item.details && item.details.trim()) out.details = item.details;
+  if (item.priority) out.priority = item.priority;
   return out;
 }
+
+// 정렬용 weight: 작을수록 우선순위 높음. 미설정은 가장 뒤.
+export const PRIORITY_RANK: Record<Priority, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+export function priorityRank(p: Priority | undefined): number {
+  return p ? PRIORITY_RANK[p] : 4;
+}
+
+// UI 표기. P 코드는 sort 안정성 + 시각적 구분을 위해.
+export const PRIORITY_LABEL: Record<Priority, string> = {
+  critical: "P0",
+  high: "P1",
+  medium: "P2",
+  low: "P3",
+};
 
 export function normalizeItems(items: RawItem[] | undefined): NormalizedItem[] {
   return (items ?? []).map(normalizeItem);

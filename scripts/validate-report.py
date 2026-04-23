@@ -23,8 +23,9 @@ default (no --strict):
   7. progress_estimate 는 0-100 정수
   8. doc_scores.{design,technical,spec} 는 각각 0-10 정수
   9. tags 는 문자열 배열. todos / backlogs / resolved_from_backlog 의 각 항목은
-     문자열 또는 `{title:str, files?:list[str], details?:str}` 객체 (옛 리포트 호환).
+     문자열 또는 `{title:str, files?:list[str], details?:str, priority?:str}` 객체.
      details 는 120 자 이내, resolved_from_backlog 항목엔 금지.
+     priority ∈ {critical, high, medium, low}, resolved_from_backlog 항목엔 금지.
   10. (--project 지정 시) project 필드가 입력 repo 와 일치
   11. 본문 필수 6 개 섹션 헤딩. resolved_from_backlog 가 비어있지 않으면 § 7 도 필수
   12. content 어디에도 알려진 secret 패턴이 없어야 함 (Anthropic OAuth / GitHub PAT 등)
@@ -256,11 +257,24 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
                                 f"{arr_field}[{i}].details 는 허용되지 않음 "
                                 "(resolved 항목은 details 안 씀)"
                             )
-                    extra = set(item.keys()) - {"title", "files", "details"}
+                    if "priority" in item:
+                        prio = item["priority"]
+                        if prio not in {"critical", "high", "medium", "low"}:
+                            errors.append(
+                                f"{arr_field}[{i}].priority 값 오류 "
+                                f"(got: {prio!r}, 기대: critical/high/medium/low)"
+                            )
+                        # resolved 항목엔 priority 금지 (이미 끝난 일이라 의미 없음).
+                        if arr_field == "resolved_from_backlog":
+                            errors.append(
+                                f"{arr_field}[{i}].priority 는 허용되지 않음 "
+                                "(resolved 항목은 priority 안 씀)"
+                            )
+                    extra = set(item.keys()) - {"title", "files", "details", "priority"}
                     if extra:
                         errors.append(
                             f"{arr_field}[{i}] 에 허용되지 않은 키: {sorted(extra)} "
-                            "(허용: title, files, details)"
+                            "(허용: title, files, details, priority)"
                         )
                 else:
                     errors.append(

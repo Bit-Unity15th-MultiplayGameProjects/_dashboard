@@ -50,6 +50,13 @@
   --age-aging-fg: oklch(0.46 0.14 60);
   --age-stale-bg: oklch(0.95 0.03 25);
   --age-stale-fg: oklch(0.42 0.16 25);
+  /* priority — Critical(P0) 만 background fill, 나머지는 outlined.
+     Critical 은 진하고 좁은 hue, High 는 risk-high 와 같은 톤. */
+  --prio-critical-bg: oklch(0.5 0.22 15);
+  --prio-critical-fg: oklch(0.998 0.002 90);
+  --prio-high-fg:     oklch(0.58 0.18 25);
+  --prio-medium-fg:   oklch(0.55 0.14 70);
+  --prio-low-fg:      oklch(0.5 0.06 260);
 }
 
 html.dark {
@@ -85,6 +92,11 @@ html.dark {
   --age-aging-fg: oklch(0.85 0.14 70);
   --age-stale-bg: oklch(0.3 0.06 25);
   --age-stale-fg: oklch(0.82 0.16 25);
+  --prio-critical-bg: oklch(0.62 0.22 15);
+  --prio-critical-fg: oklch(0.17 0.008 260);
+  --prio-high-fg:     oklch(0.78 0.18 25);
+  --prio-medium-fg:   oklch(0.82 0.14 70);
+  --prio-low-fg:      oklch(0.62 0.02 260);
 }
 
 /* accent class 토글 — html.accent-{name} 가 --accent-raw 를 덮어씀.

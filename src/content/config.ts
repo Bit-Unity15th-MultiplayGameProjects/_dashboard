@@ -2,10 +2,10 @@ import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
 
 // todos / backlogs / resolved_from_backlog 의 개별 항목 스키마.
-// 옛 리포트는 plain string, 신규는 `{title, files?, details?}` 객체를 허용한다.
-// `details` 는 title 이 자명하지 않을 때 1 줄로 근거/맥락을 보강. 토큰 비용
-// 억제를 위해 프롬프트 차원에서 60-80자 권장 + resolved_from_backlog 금지를
-// 강제하지만, 스키마 max 는 빌드 안전망으로 120 으로 둔다.
+// 옛 리포트는 plain string, 신규는 `{title, files?, details?, priority?}` 객체.
+// `details` (1 줄 60-80자, max 120) 는 title 이 자명하지 않을 때 근거/맥락 보강.
+// `priority` 는 P0~P3 (critical/high/medium/low). 프롬프트는 todos/backlogs 에
+// 필수, resolved_from_backlog 엔 금지. 스키마는 호환을 위해 optional.
 // 정규화는 src/lib/reports.ts 의 normalizeItem 에서 처리.
 const itemSchema = z.union([
   z.string().min(1),
@@ -13,6 +13,7 @@ const itemSchema = z.union([
     title: z.string().min(1),
     files: z.array(z.string()).optional(),
     details: z.string().min(1).max(120).optional(),
+    priority: z.enum(["critical", "high", "medium", "low"]).optional(),
   }),
 ]);
 
