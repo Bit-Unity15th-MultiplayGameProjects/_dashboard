@@ -17,34 +17,12 @@
 
 ## 2. 동작 방식
 
-```mermaid
-flowchart TB
-  CRON[cron: every 30 min]
-  MANUAL[Run workflow<br/>target_repo / force 입력]
-  CRON --> GEN
-  MANUAL --> GEN
+전체 파이프라인은 **trigger → generate → deploy** 3단계.
 
-  subgraph GEN["generate-reports.yml"]
-    direction TB
-    D["discover job<br/>list-target-repos.sh<br/>+ .reviewignore 필터"]
-    D --> MAT{"matrix fan-out<br/>max-parallel = 3"}
-    MAT --> G{"check-needs-report.sh<br/>3 skip gates:<br/>SHA · 쿨다운 · 커밋수"}
-    G -- skip --> SUM[cell summary 기록]
-    G -- pass --> PR["run-claude-review.sh<br/>clone + diff → prompt"]
-    PR --> CL[["claude -p headless"]]
-    CL --> WR["reports/repo/ISO.md<br/>+ .meta.json 갱신"]
-    WR --> PUSH["commit + push to main"]
-  end
+![generate-reports → deploy 파이프라인 다이어그램](docs/pipeline.svg)
 
-  PUSH --> DEP
-  subgraph DEP["deploy.yml"]
-    BLD["astro build<br/>assets/ (not _astro/)"] --> PAGES[("GitHub Pages")]
-  end
-
-  ORG[("Bit-Unity15th org<br/>프로젝트 repo들")] -. ORG_REPO_PAT_BIT_UNITY_15TH .-> D
-  ORG -. ORG_REPO_PAT_BIT_UNITY_15TH clone .-> PR
-  MAX[/"CLAUDE_CODE_OAUTH_TOKEN<br/>Max 구독"/] -. OAuth .-> CL
-```
+> 원본은 `docs/pipeline.excalidraw`. 수정하려면 [excalidraw.com](https://excalidraw.com) 에
+> 드래그해서 편집 후 SVG export("Embed scene" 체크) 로 `docs/pipeline.svg` 를 덮어쓴다.
 
 핵심 흐름:
 
@@ -57,20 +35,43 @@ flowchart TB
 3. **deploy** — `reports/` 변경을 감지한 `deploy.yml` 이 Astro 로 정적 빌드하여
    GitHub Pages 에 업로드한다.
 
-### 2.1 대시보드 UI
+### 2.1 리포트 스키마
+
+각 리포트는 YAML frontmatter + 마크다운 본문. 주요 필드:
+
+- **정량 지표** — `progress_estimate` (0-100), `doc_scores.{design,technical,spec}`
+  (0-10), `commit_count`, `risk_level` ∈ {low, medium, high}
+- **작업 항목 (객체 배열)** — `todos`, `backlogs`, `resolved_from_backlog`.
+  각 항목은 `{ title, priority?, files?, details? }` 객체.
+  - `priority` — `critical` (P0) / `high` (P1) / `medium` (P2) / `low` (P3).
+    `todos` · `backlogs` 에 **필수**, `resolved_from_backlog` 에 **금지**.
+    `todos` 는 priority 내림차순으로 정렬해서 출력.
+  - `files` — repo 루트 기준 상대경로 배열 (1-4개). UI에서 GitHub 링크로 렌더.
+  - `details` — 1줄 60-80자 보강 설명 (max 120). `title` 이 자명하면 생략.
+- **호환성** — 스키마는 옛 `string[]` 항목도 파싱 (`src/lib/reports.ts`
+  `normalizeItem` 에서 흡수). 신규 리포트만 객체 형식으로 생성.
+
+전체 스펙은 [CLAUDE.md § 리포트 포맷](./CLAUDE.md) 과 `scripts/review-prompt.md`,
+Zod 스키마는 `src/content/config.ts` 참조.
+
+### 2.2 대시보드 UI
 
 배포된 사이트는 세 레벨의 화면을 제공한다.
 
 - **홈** — 5칸 stat strip(프로젝트 수 / 평균 진행도 / risk 분포 등) +
   risk 필터 탭 + grid/table 뷰 토글. 각 `ProjectCard` 는 progress
-  sparkline 과 risk strip 을 함께 표시.
+  sparkline, risk strip, 최상위 priority 에 해당하는 `PriorityBadge` 를
+  함께 표시.
 - **프로젝트 상세** (`/{repo}`) — 3 MetricCard(진행도 / 문서화 평균 /
   risk), 진행도 StepChart, 문서화(design·technical·spec) MultiLineChart,
-  4 SmallMultiple(커밋수 / backlog 수 / 해결된 backlog / risk 추이),
-  Backlog 항목에 `age` 배지 (몇 번째 리포트째 미해결인지).
+  4 SmallMultiple(커밋수 / backlog 수 / 해결된 backlog / risk 추이).
+  Backlog 리스트에는 `age` 배지 (몇 번째 리포트째 미해결인지) + priority
+  배지가 함께 붙고, 전체 이력은 `BacklogHistoryDialog` 에서
+  carry-over / resolved 를 한 번에 훑어볼 수 있다.
 - **개별 리포트** (`/{repo}/{date}`) — 통합 `ProgressPanel` (큰 N/100 +
-  progress bar + 3 doc-score bar), 본문 6 섹션, 그리고 전체 리포트
-  타임라인.
+  progress bar + 3 doc-score bar), 본문 6 섹션, 전체 리포트 타임라인.
+  todo/backlog 항목은 `PriorityBadge` + 파일 링크로 인라인 표기되며
+  `details` 가 있는 항목은 `ItemDetailDialog` 로 펼쳐 전체 설명을 확인.
 
 우상단 팔레트 아이콘을 누르면 `Tweaks` 플로팅 패널이 열려 light/dark
 테마와 accent 색(indigo / emerald / amber / rose / violet / slate) 을
@@ -279,7 +280,9 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 **증상**:
 
 - `deploy.yml` 의 `astro build` 가 zod schema 에러로 실패. 보통 `commit_range`
-  형식 오류, `risk_level` 이 enum 밖, `date` 가 offset 없이 date-only 등.
+  형식 오류, `risk_level` 이 enum 밖, `date` 가 offset 없이 date-only,
+  todo/backlog 항목의 `priority` 누락 / 미허용 값, `details` 120자 초과,
+  `resolved_from_backlog` 에 priority/details 가 섞여 들어옴 등.
 - 또는 빌드는 성공해도 대시보드 카드가 이상하게 찍힘 (summary 가 과도하게 길거나,
   tags 에 이모지·문장 등).
 
@@ -296,8 +299,10 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 ./scripts/test-prompt.sh Exit-or-Die_EEN --run --range HEAD~10..HEAD
 ```
 
-`--run` 모드는 출력 끝에 `[validator] OK` 또는 `[validator] SCHEMA ISSUES:` 를
-stderr 에 찍어준다. 깨진 항목이 뭔지 여기서 확인.
+`--run` 모드는 출력 끝에 `[validate-report] OK` 또는
+`[validate-report] SCHEMA ISSUES:` 를 stderr 에 찍어준다. 깨진 항목이 뭔지
+여기서 확인. (`--fixable` 한 포맷 미스는 `[validate-report] AUTO-FIXED:` 로
+자동 보정되므로 로그에서 함께 확인할 것.)
 
 **튜닝 포인트** (`scripts/review-prompt.md`):
 
@@ -306,6 +311,7 @@ stderr 에 찍어준다. 깨진 항목이 뭔지 여기서 확인.
 | 상단 HTML 주석 블록 | 변수 목록 갱신 시 (Claude 에게는 안 보임) |
 | `# 평가 기준` | 리뷰 깊이/범위 변경 (예: 새 축 추가) |
 | `# risk_level 판정 기준` | 판정이 일관되게 너무 낮거나 높게 나올 때 |
+| ``# `progress_estimate` / `todos` / `backlogs` 산출`` | priority 분포가 기울 때 (critical 남용 등), details 룰 변경 시 |
 | `# 출력 포맷 > Frontmatter 필드` | 스키마 변경 시 — **반드시** `src/content/config.ts` 와 동시에 수정 |
 | `# 금지사항` | 반복적으로 나오는 포맷 위반을 명시적으로 금지 |
 
@@ -402,7 +408,7 @@ Node 20+ 필요.
 
 ## 디렉토리
 
-- `src/` — Astro 프론트엔드
+- `src/` — Astro 프론트엔드 (`lib/reports.ts` 에 todo/backlog 정규화 + priority 유틸)
 - `reports/{project}/*.md` — Claude 가 생성한 리뷰 리포트 (git 에 커밋됨)
 - `reports/{project}/.meta.json` — 각 프로젝트의 `last_sha`, `last_report_at`
 - `scripts/` — cron orchestration

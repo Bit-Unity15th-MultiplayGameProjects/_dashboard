@@ -42,19 +42,29 @@ _dashboard/
 │  ├─ generate-reports.yml   # cron 오케스트레이션
 │  └─ deploy.yml             # Pages 배포
 ├─ scripts/
-│  ├─ list-target-repos.sh
-│  ├─ check-needs-report.sh
-│  ├─ run-claude-review.sh
-│  └─ review-prompt.md
+│  ├─ list-target-repos.sh           # discover — org repo 나열 + 필터
+│  ├─ check-needs-report.sh          # 3 skip 게이트 (SHA / 쿨다운 / 커밋수)
+│  ├─ run-claude-review.sh           # prompt 치환 + claude -p headless
+│  ├─ review-prompt.md               # 리뷰 프롬프트 템플릿
+│  ├─ validate-report.py             # frontmatter zod 룰 pre-commit 검증
+│  ├─ test-prompt.sh                 # 로컬 dry-run / --run 실호출
+│  ├─ migrate-items-to-object.py     # string → {title, files?} 일괄 변환
+│  └─ backfill-priority.py           # 기존 항목에 priority 사후 부여 (Claude 1회)
 ├─ reports/
 │  └─ {repo-name}/
 │     ├─ .meta.json          # last_sha, last_report_at
 │     └─ {iso-timestamp}.md
 ├─ src/                      # Astro
-│  ├─ content/config.ts
-│  ├─ pages/
-│  ├─ components/
-│  └─ layouts/
+│  ├─ content/config.ts      # zod 스키마
+│  ├─ lib/reports.ts         # todo/backlog 정규화 + priority 유틸
+│  ├─ pages/                 # index + [project]/...
+│  ├─ components/            # ProgressPanel, PriorityBadge, ItemDetailDialog 등
+│  ├─ layouts/Layout.astro
+│  └─ styles/global.css      # OKLCH 토큰
+├─ docs/                     # 문서 보조 자산
+│  ├─ pipeline.excalidraw            # 파이프라인 다이어그램 원본 (Excalidraw)
+│  └─ pipeline.svg                   # README 에 임베드되는 export
+├─ .reviewignore             # (선택) 리뷰 제외 repo 이름 목록
 ├─ package.json
 ├─ astro.config.mjs
 └─ tailwind.config.mjs
@@ -68,19 +78,32 @@ _dashboard/
 Markdown + YAML frontmatter. 상세 스펙은 `scripts/review-prompt.md`,
 Zod 스키마는 `src/content/config.ts`, validator 는 `scripts/validate-report.py`.
 
-frontmatter 필드 (필수 11 + 선택 1):
+frontmatter 필드 (총 12):
 - project: string
 - date: ISO 8601 with offset
 - commit_range: string (`from_sha..to_sha`)
 - commit_count: number
 - risk_level: "low" | "medium" | "high"
-- tags: string[]
+- tags: string[] (3-6개)
 - summary: string (한 줄 요약, 60자 이내)
 - progress_estimate: number (0-100, %. Claude 종합 판정)
 - doc_scores: { design, technical, spec } 각 0-10 정수
-- todos: string[] (3-10개, 다음 리포트까지 유효한 actionable 항목)
-- backlogs: string[] (이 시점 미해결 이슈, 다음 리포트로 이월됨)
-- resolved_from_backlog: string[] (이전 backlog 중 해결된 항목, 없으면 [])
+- todos: Item[] (3-10개, 다음 리포트까지 유효한 actionable 항목)
+- backlogs: Item[] (이 시점 미해결 이슈, 다음 리포트로 이월됨)
+- resolved_from_backlog: Item[] (이전 backlog 중 해결된 항목, 없으면 [])
+
+`Item` 스키마 (`todos` / `backlogs` / `resolved_from_backlog` 공통):
+- title: string (필수, 한 줄)
+- priority: "critical" | "high" | "medium" | "low" (P0~P3)
+  — `todos` / `backlogs` 에 **필수**, `resolved_from_backlog` 에 **금지**
+- files: string[] (선택, repo 루트 기준 상대경로 1-4개)
+- details: string (선택, 60-80자 1줄, max 120. `resolved_from_backlog` 금지)
+
+스키마는 옛 plain string 항목도 허용 (`normalizeItem` 에서 객체로 승격).
+신규 리포트는 반드시 객체 형식으로 생성된다.
+
+`todos` 배열은 priority 내림차순 (critical → high → medium → low) 으로
+정렬되어 있어야 한다. UI 가 배열 순서를 우선순위 표시에 그대로 사용.
 
 본문 섹션 (6 필수 + 1 조건부):
 1. 주요 변경사항
