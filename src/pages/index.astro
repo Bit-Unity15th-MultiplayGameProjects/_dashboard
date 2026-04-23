@@ -12,6 +12,7 @@ import {
   getAllReports,
   getProjectSummaries,
   chronologicalSnapshots,
+  lastCommitAt,
 } from "../lib/reports";
 
 const BASE = import.meta.env.BASE_URL;
@@ -46,6 +47,7 @@ const cards = projects.map((p) => ({
   risk: p.latest.entry.data.risk_level,
   tags: p.latest.entry.data.tags,
   snapshots: chronologicalSnapshots(p),
+  lastCommitAt: lastCommitAt(p),
 }));
 ---
 
@@ -174,6 +176,7 @@ const cards = projects.map((p) => ({
                 risk={c.risk}
                 tags={c.tags}
                 snapshots={c.snapshots}
+                lastCommitAt={c.lastCommitAt}
               />
             ))}
           </div>

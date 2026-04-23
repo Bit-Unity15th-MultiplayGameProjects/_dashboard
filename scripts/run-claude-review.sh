@@ -18,6 +18,9 @@
 #   MAX_DIFF_LINES    (선택, 기본 3000)    — diff 줄 수 하드 리밋
 #   TARGET_DIR        (선택, 기본 "target-repo")  — clone 경로
 #   OUTPUT_PATH       (선택, 기본 "/tmp/final-prompt.md")
+#   CLONE_FACTS_PATH  (선택, 기본 OUTPUT_PATH 와 같은 디렉토리 + ".clone-facts.json")
+#                     — clone 에서 뽑은 last_commit_at / contributors 를 기록.
+#                     generate-reports.yml 이 meta.json 에 병합한다.
 #   KEEP_TARGET       (선택, "1" 이면 clone 디렉토리 유지 — 디버깅용)
 #
 # 사용 예:
@@ -37,6 +40,7 @@ MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-102400}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-3000}"
 TARGET_DIR="${TARGET_DIR:-target-repo}"
 OUTPUT_PATH="${OUTPUT_PATH:-/tmp/final-prompt.md}"
+CLONE_FACTS_PATH="${CLONE_FACTS_PATH:-${OUTPUT_PATH%.md}.clone-facts.json}"
 KEEP_TARGET="${KEEP_TARGET:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -102,6 +106,25 @@ else
 fi
 
 echo "[info] commit_range: $COMMIT_RANGE" >&2
+
+# ---- clone facts (sidecar for meta.json merge) ----------------------------
+# TO_SHA 의 commit 시각 + 프로젝트 전체 contributor 목록을 뽑아 sidecar JSON 으로.
+# generate-reports.yml 이 meta.json 에 병합한다 (last_commit_at, contributors).
+# 실패해도 리뷰 본체를 막지 않도록 `|| true` 로 방어.
+LAST_COMMIT_AT="$(git -C "$TARGET_DIR" log -1 --format=%cI "$TO_SHA" 2>/dev/null || echo "")"
+CONTRIBUTORS_JSON="$(
+  git -C "$TARGET_DIR" shortlog -sn "$TO_SHA" 2>/dev/null \
+    | awk -F'\t' 'NF==2 { sub(/^ +/, "", $1); print $2 }' \
+    | python3 -c 'import sys, json; print(json.dumps([l.rstrip("\n") for l in sys.stdin if l.strip()]))' \
+    || echo "[]"
+)"
+mkdir -p "$(dirname "$CLONE_FACTS_PATH")"
+jq -n \
+  --arg at "$LAST_COMMIT_AT" \
+  --argjson cs "${CONTRIBUTORS_JSON:-[]}" \
+  '{last_commit_at: $at, contributors: $cs}' \
+  > "$CLONE_FACTS_PATH" || true
+echo "[info] clone facts written: $CLONE_FACTS_PATH" >&2
 
 # Root commit 단일 first-report (TO_SHA == FROM_RESOLVED) 인 경우 위 range 는
 # 빈 diff 가 된다. 이 때는 git 의 magic empty tree (SHA 고정값) 를 from 으로

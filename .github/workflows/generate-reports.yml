@@ -181,10 +181,12 @@ jobs:
 
           # 매 cell 이 별 runner 지만, 이름에 repo 를 박아 실수 방지.
           OUT="/tmp/final-prompt-${REPO//\//__}.md"
+          FACTS="/tmp/final-prompt-${REPO//\//__}.clone-facts.json"
 
           # FROM_SHA 가 비면 run-claude-review.sh 가 "INITIAL" 로 취급한다.
           path=$(
             OUTPUT_PATH="$OUT" \
+            CLONE_FACTS_PATH="$FACTS" \
             TARGET_DIR="/tmp/target-${REPO//\//__}" \
               bash scripts/run-claude-review.sh \
                 "$REPO" \
@@ -193,6 +195,7 @@ jobs:
           )
 
           echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "facts=$FACTS" >> "$GITHUB_OUTPUT"
           echo "[info] prompt bytes: $(wc -c <"$path")" >&2
 
       # ---------------------------------------------------------------------
@@ -266,6 +269,7 @@ jobs:
           REPO:        ${{ matrix.repo }}
           CURRENT_SHA: ${{ steps.gate.outputs.current_sha }}
           OUT_FILE:    ${{ steps.run.outputs.out_file }}
+          FACTS_FILE:  ${{ steps.prompt.outputs.facts }}
         run: |
           set -euo pipefail
           META="reports/${REPO}/.meta.json"
@@ -278,12 +282,20 @@ jobs:
           fi
           NEW_COUNT=$((PREV_COUNT + 1))
 
+          # clone facts (last_commit_at, contributors) — 없으면 빈 객체로.
+          if [[ -n "${FACTS_FILE:-}" && -f "$FACTS_FILE" ]]; then
+            FACTS_JSON=$(cat "$FACTS_FILE")
+          else
+            FACTS_JSON='{}'
+          fi
+
           jq -n \
             --arg sha   "$CURRENT_SHA" \
             --arg at    "$NOW" \
             --arg file  "$OUT_FILE" \
             --argjson n "$NEW_COUNT" \
-            '{last_sha: $sha, last_report_at: $at, last_report_file: $file, report_count: $n}' \
+            --argjson facts "$FACTS_JSON" \
+            '{last_sha: $sha, last_report_at: $at, last_report_file: $file, report_count: $n} + $facts' \
             > "$META"
 
           echo "[info] meta updated:"

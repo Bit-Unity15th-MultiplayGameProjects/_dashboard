@@ -41,10 +41,13 @@ interface Props {
 }
 
 const { summary } = Astro.props;
-const { project, reports } = summary;
+const { project, reports, meta } = summary;
 
 const BASE = import.meta.env.BASE_URL;
 const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
+
+const contributors = meta.contributors ?? [];
+const repoUrl = `https://github.com/${ORG}/${project}`;
 
 const latest = reports[0]!;
 const latestData = latest.entry.data;
@@ -116,13 +119,40 @@ function formatDateShort(iso: string) {
     </a>
 
     <section style="margin-bottom:28px;">
-      <h1
-        style="font-size:26px;font-weight:600;margin:0;letter-spacing:-0.02em;font-family:var(--mono);color:var(--fg-1);"
+      <div
+        style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"
       >
-        {project}
-      </h1>
+        <h1
+          style="font-size:26px;font-weight:600;margin:0;letter-spacing:-0.02em;font-family:var(--mono);color:var(--fg-1);"
+        >
+          {project}
+        </h1>
+        {
+          contributors.length > 0 && (
+            <span
+              title={`contributors · ${contributors.join(", ")}`}
+              style="font-size:12px;color:var(--fg-3);font-weight:400;line-height:1.4;"
+            >
+              {contributors.join(", ")}
+            </span>
+          )
+        }
+      </div>
+      <a
+        href={repoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="repo-link"
+        style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--fg-2);text-decoration:none;"
+      >
+        <span style="color:var(--fg-3);">↗</span>
+        github.com/{ORG}/{project}
+      </a>
+      <hr
+        style="margin:12px 0 12px;border:none;border-top:1px solid var(--border);"
+      />
       <p
-        style="margin:10px 0 0;color:var(--fg-2);font-size:14px;line-height:1.6;max-width:720px;"
+        style="margin:0;color:var(--fg-2);font-size:14px;line-height:1.6;max-width:720px;"
       >
         {latestData.summary}
       </p>
@@ -563,6 +593,9 @@ function formatDateShort(iso: string) {
 </script>
 
 <style is:global>
+  .repo-link:hover {
+    color: var(--accent) !important;
+  }
   .timeline-row:hover {
     background: var(--bg-2);
   }

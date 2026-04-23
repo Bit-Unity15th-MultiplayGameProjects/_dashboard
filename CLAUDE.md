@@ -49,10 +49,11 @@ _dashboard/
 │  ├─ validate-report.py             # frontmatter zod 룰 pre-commit 검증
 │  ├─ test-prompt.sh                 # 로컬 dry-run / --run 실호출
 │  ├─ migrate-items-to-object.py     # string → {title, files?} 일괄 변환
-│  └─ backfill-priority.py           # 기존 항목에 priority 사후 부여 (Claude 1회)
+│  ├─ backfill-priority.py           # 기존 항목에 priority 사후 부여 (Claude 1회)
+│  └─ backfill-meta-fields.sh        # 기존 .meta.json 에 last_commit_at/contributors 채움 (gh api)
 ├─ reports/
 │  └─ {repo-name}/
-│     ├─ .meta.json          # last_sha, last_report_at
+│     ├─ .meta.json          # last_sha, last_report_at, last_commit_at, contributors
 │     └─ {iso-timestamp}.md
 ├─ src/                      # Astro
 │  ├─ content/config.ts      # zod 스키마
@@ -115,6 +116,16 @@ frontmatter 필드 (총 12):
 7. 이전 Backlog 해결 (resolved_from_backlog 있을 때만)
 
 문서 완성도 rubric 기준: `_sample/docs` (run-claude-review.sh 가 매 run clone).
+
+## .meta.json 필드
+`reports/{repo}/.meta.json` 은 content collection 에서 제외되고 Astro 가 `node:fs`
+로 직접 읽는다 (`src/lib/reports.ts`의 `readProjectMeta`).
+- last_sha / last_report_at / last_report_file / report_count: 게이트·요약용
+- last_commit_at: default branch HEAD 의 commit 시각 (ISO 8601). 대시보드
+  카드 우상단에 표기. 없으면 최신 리포트 `date` 로 fallback.
+- contributors: 프로젝트 전체 기여자 목록. 파이프라인은 `git shortlog -sn`
+  의 author 실명, backfill 은 `gh api /contributors` 의 login. 프로젝트
+  상세 페이지 제목 우측에 회색 소문자로 표기.
 
 ## 작업 원칙
 - 프로젝트 repo는 read-only로만 다룬다

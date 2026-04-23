@@ -1,7 +1,59 @@
 import { getCollection, type CollectionEntry } from "astro:content";
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 
 export type ReportEntry = CollectionEntry<"reports">;
 export type Risk = "low" | "medium" | "high";
+
+// .meta.json 은 content collection 에서 제외돼 있으므로 fs 로 직접 읽는다.
+// 빌드 시점에 한 번 읽고 getProjectSummaries 가 주입한다.
+export interface ProjectMeta {
+  last_sha?: string;
+  last_report_at?: string;
+  last_report_file?: string;
+  report_count?: number;
+  // 최신 default-branch HEAD 의 commit 시각 (ISO 8601 with offset).
+  // 파이프라인이 `git log -1 --format=%cI` 로 기록. 기존 리포트엔 없을 수 있음.
+  last_commit_at?: string;
+  // 프로젝트 전체 기여자 displayName, 중복 제거 + 커밋 수 내림차순.
+  // 파이프라인이 `git shortlog -sn` 파싱해 기록. 기존 리포트엔 없을 수 있음.
+  contributors?: string[];
+}
+
+// Astro glob loader 는 entry.id 를 소문자화한다. 반면 실제 디렉토리명 (`YJ`)
+// 은 case 보존. 리눅스 CI 는 case-sensitive 라 소문자 그대로 path 조회 시 404.
+// 한 번 스캔 후 lowercase → 실제 디렉토리명 map 으로 lookup.
+let metaCache: Map<string, ProjectMeta> | null = null;
+
+async function loadMetaCache(): Promise<Map<string, ProjectMeta>> {
+  if (metaCache) return metaCache;
+  const cache = new Map<string, ProjectMeta>();
+  const reportsDir = path.resolve(process.cwd(), "reports");
+  let dirents: Awaited<ReturnType<typeof readdir>> = [];
+  try {
+    dirents = await readdir(reportsDir, { withFileTypes: true });
+  } catch {
+    metaCache = cache;
+    return cache;
+  }
+  for (const d of dirents) {
+    if (!d.isDirectory()) continue;
+    const metaPath = path.join(reportsDir, d.name, ".meta.json");
+    try {
+      const raw = await readFile(metaPath, "utf-8");
+      cache.set(d.name.toLowerCase(), JSON.parse(raw) as ProjectMeta);
+    } catch {
+      // 디렉토리 있지만 meta.json 없는 경우 — 무시.
+    }
+  }
+  metaCache = cache;
+  return cache;
+}
+
+async function readProjectMeta(project: string): Promise<ProjectMeta> {
+  const cache = await loadMetaCache();
+  return cache.get(project.toLowerCase()) ?? {};
+}
 
 /**
  * Report entry id layout: `{project}/{iso-timestamp}` (from glob loader).
@@ -36,6 +88,7 @@ export interface ProjectSummary {
   project: string;
   reports: ReportInfo[]; // sorted desc (latest first)
   latest: ReportInfo;
+  meta: ProjectMeta;
 }
 
 export async function getProjectSummaries(): Promise<ProjectSummary[]> {
@@ -50,13 +103,19 @@ export async function getProjectSummaries(): Promise<ProjectSummary[]> {
   const summaries: ProjectSummary[] = [];
   for (const [project, reports] of byProject) {
     const sorted = sortByDateDesc(reports);
-    summaries.push({ project, reports: sorted, latest: sorted[0]! });
+    const meta = await readProjectMeta(project);
+    summaries.push({ project, reports: sorted, latest: sorted[0]!, meta });
   }
   return summaries.sort(
     (a, b) =>
       new Date(b.latest.entry.data.date).getTime() -
       new Date(a.latest.entry.data.date).getTime(),
   );
+}
+
+/** 마지막 커밋 시각. meta 에 없으면 최신 리포트 `date` 로 fallback. */
+export function lastCommitAt(p: ProjectSummary): string {
+  return p.meta.last_commit_at ?? p.latest.entry.data.date;
 }
 
 // ─── derived shapes for the new design ────────────────────────────────

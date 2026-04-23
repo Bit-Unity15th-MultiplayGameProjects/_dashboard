@@ -13,9 +13,28 @@ interface Props {
   risk: Risk;
   tags: string[];
   snapshots: ChartSnapshot[]; // chronological (oldest first)
+  lastCommitAt: string; // ISO 8601 — meta.last_commit_at 또는 latest report date
 }
 
-const { project, href, summary, risk, tags, snapshots } = Astro.props;
+const { project, href, summary, risk, tags, snapshots, lastCommitAt } =
+  Astro.props;
+
+// 빌드 시점 스냅샷이라 "3시간 전" 같은 relative 는 배포 후 stale 해진다.
+// 카드엔 stable 한 absolute 를 KST 로 표기, full ISO 는 title 에 남긴다.
+const commitDate = new Date(lastCommitAt);
+const commitShort = commitDate.toLocaleString("ko-KR", {
+  timeZone: "Asia/Seoul",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const commitFull = commitDate.toLocaleString("ko-KR", {
+  timeZone: "Asia/Seoul",
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 const first = snapshots[0];
 const last = snapshots[snapshots.length - 1];
@@ -53,6 +72,13 @@ const deltaLabel =
         {summary}
       </p>
     </div>
+    <time
+      datetime={lastCommitAt}
+      title={`last commit · ${commitFull}`}
+      style="flex:none;font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.04em;text-align:right;white-space:nowrap;padding-top:2px;"
+    >
+      {commitShort}
+    </time>
   </div>
 
   <div
