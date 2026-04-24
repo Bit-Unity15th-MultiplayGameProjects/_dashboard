@@ -99,13 +99,44 @@ jobs:
     timeout-minutes: 25
     defaults:
       run:
-        shell: bash
+        shell: C:\PROGRA~1\Git\bin\bash.exe --noprofile --norc -e -o pipefail {0}
     steps:
       - name: Checkout _dashboard
         uses: actions/checkout@v4
         with:
           # rebase-pull-push 대비 히스토리 풀. 커밋/메타 변경 이력 조회도 필요.
           fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Prepare Windows runner tools
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = Join-Path $env:RUNNER_TEMP "codex-tools"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+
+          $jq = Join-Path $bin "jq.exe"
+          if (!(Test-Path $jq)) {
+            Invoke-WebRequest `
+              -Uri "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe" `
+              -OutFile $jq
+          }
+
+          Set-Content -Path (Join-Path $bin "python3") -Encoding ascii -Value @(
+            "#!/usr/bin/env bash",
+            'python "$@"'
+          )
+
+          Set-Content -Path (Join-Path $bin "pip3") -Encoding ascii -Value @(
+            "#!/usr/bin/env bash",
+            'python -m pip "$@"'
+          )
+
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
           # 기본 GITHUB_TOKEN 으로 체크아웃 → 같은 repo 푸시 권한 OK.
           # 외부 org repo 접근은 ORG_REPO_PAT_BIT_UNITY_15TH 로 gh api 에서만 사용.
 
