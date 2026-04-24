@@ -97,6 +97,9 @@ jobs:
       group: report-${{ matrix.repo }}
       cancel-in-progress: false
     timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout _dashboard
         uses: actions/checkout@v4
