@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """기존 리포트의 todos / backlogs 항목에 priority 필드를 사후 부여.
 
-각 리포트별로 Claude (Opus) 를 1 회 호출해 항목 순서대로 P0~P3 (critical /
+각 리포트별로 Codex CLI 를 1 회 호출해 항목 순서대로 P0~P3 (critical /
 high / medium / low) 를 분류받는다. 본문 재생성 없이 frontmatter 만 갱신.
 
 사용:
     python3 scripts/backfill-priority.py [--dry-run] [--only PATTERN] [path ...]
 
---dry-run: Claude 호출 + 응답 파싱까지만, 파일 쓰기 안 함.
+--dry-run: Codex 호출 + 응답 파싱까지만, 파일 쓰기 안 함.
 --only PATTERN: glob 으로 일부 리포트만 (예: `--only 'reports/HANPAN*'`).
 path 미지정 + --only 없음: reports/*/*.md 전부.
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import os
 import re
 import subprocess
 import sys
@@ -27,8 +28,8 @@ from typing import Any
 import yaml
 
 
-CLAUDE_BIN = "claude"
-MODEL = "claude-opus-4-7"
+CODEX_BIN = "codex"
+MODEL = "gpt-5.5"
 PRIORITIES = {"critical", "high", "medium", "low"}
 
 
@@ -157,20 +158,34 @@ def build_prompt(fm: dict, todos: list[Any], backlogs: list[Any]) -> str:
     )
 
 
-# ─── claude 호출 + 응답 파싱 ───────────────────────────────────────────
+# ─── Codex 호출 + 응답 파싱 ───────────────────────────────────────────
 
-def call_claude(prompt: str) -> str:
+def call_codex(prompt: str) -> str:
+    env = os.environ.copy()
+    for key in ("OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"):
+        env.pop(key, None)
     proc = subprocess.run(
-        [CLAUDE_BIN, "-p", "--output-format", "text", "--model", MODEL],
+        [
+            CODEX_BIN,
+            "exec",
+            "--model",
+            MODEL,
+            "--sandbox",
+            "read-only",
+            "--ask-for-approval",
+            "never",
+            "-",
+        ],
         input=prompt,
         capture_output=True,
         text=True,
         encoding="utf-8",
+        env=env,
         timeout=180,
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"claude CLI exit {proc.returncode}\nstderr:\n{proc.stderr}"
+            f"codex CLI exit {proc.returncode}\nstderr:\n{proc.stderr}"
         )
     return proc.stdout
 
@@ -274,9 +289,9 @@ def process_one(path: Path, dry_run: bool) -> tuple[str, str]:
 
     prompt = build_prompt(fm, todos, backlogs)
     try:
-        resp = call_claude(prompt)
+        resp = call_codex(prompt)
     except Exception as e:
-        return "error", f"claude 호출 실패: {e}"
+        return "error", f"Codex 호출 실패: {e}"
 
     try:
         todo_prios, backlog_prios = parse_response(resp, len(todos), len(backlogs))

@@ -2,7 +2,7 @@
 
 ## 목적
 Bit-Unity15th-MultiplayGameProjects organization 내 프로젝트 repo들에 대해
-주기적으로 Claude 기반 코드리뷰/진행도 리포트를 자동 생성하고,
+주기적으로 Codex 기반 코드리뷰/진행도 리포트를 자동 생성하고,
 이를 GitHub Pages 대시보드로 공개한다.
 
 ## Organization
@@ -17,7 +17,7 @@ Bit-Unity15th-MultiplayGameProjects organization 내 프로젝트 repo들에 대
 - archived repo도 제외
 
 ## 업데이트 정책 (과다 호출 방지)
-cron으로 주기 체크하되, 4단계 게이트로 실제 Claude 호출을 제한:
+cron으로 주기 체크하되, 4단계 게이트로 실제 Codex 호출을 제한:
 1. Gate 1 (discovery): repo name이 `_` prefix면 skip. archived/`.reviewignore` 도 이 단계에서 제외.
 2. Gate 2 (check-needs-report): 마지막 리포트 이후 새 커밋 없으면 skip (SHA 비교)
 3. Gate 3 (check-needs-report): 마지막 리포트로부터 MIN_INTERVAL_HOURS 미경과 시 skip
@@ -32,7 +32,8 @@ cron으로 주기 체크하되, 4단계 게이트로 실제 Claude 호출을 제
 ## 기술 스택
 - Frontend: Astro + Tailwind + Content Collections
 - CI/CD: GitHub Actions
-- AI: Claude CLI (`@anthropic-ai/claude-code`) headless 모드, `--model claude-opus-4-7`, Max 구독 OAuth
+- AI: Codex CLI (`@openai/codex`) non-interactive 모드, `--model gpt-5.5`, ChatGPT 구독 로그인 auth
+- Runner: review job 은 self-hosted runner 에서 실행. `~/.codex/auth.json` 은 file-backed ChatGPT auth 로 유지.
 - Deploy: GitHub Pages (Actions 방식)
 
 ## 디렉토리 구조
@@ -44,12 +45,12 @@ _dashboard/
 ├─ scripts/
 │  ├─ list-target-repos.sh           # discover — org repo 나열 + 필터
 │  ├─ check-needs-report.sh          # 3 skip 게이트 (SHA / 쿨다운 / 커밋수)
-│  ├─ run-claude-review.sh           # prompt 치환 + claude -p headless
+│  ├─ run-claude-review.sh           # prompt 치환 + Codex 입력 파일 생성
 │  ├─ review-prompt.md               # 리뷰 프롬프트 템플릿
 │  ├─ validate-report.py             # frontmatter zod 룰 pre-commit 검증
 │  ├─ test-prompt.sh                 # 로컬 dry-run / --run 실호출
 │  ├─ migrate-items-to-object.py     # string → {title, files?} 일괄 변환
-│  ├─ backfill-priority.py           # 기존 항목에 priority 사후 부여 (Claude 1회)
+│  ├─ backfill-priority.py           # 기존 항목에 priority 사후 부여 (Codex 1회)
 │  └─ backfill-meta-fields.sh        # 기존 .meta.json 에 last_commit_at/contributors 채움 (gh api)
 ├─ reports/
 │  └─ {repo-name}/
@@ -72,7 +73,7 @@ _dashboard/
 ```
 
 ## Secrets (GitHub)
-- CLAUDE_CODE_OAUTH_TOKEN: Max 구독 OAuth 토큰
+- Codex ChatGPT auth: self-hosted runner 의 `~/.codex/auth.json` (repo/로그/artifact 저장 금지)
 - ORG_REPO_PAT_BIT_UNITY_15TH: 프로젝트 repo 읽기 전용 fine-grained PAT (Contents:Read + Metadata:Read, All repositories). `_dashboard` 자체 푸시는 workflow 기본 `GITHUB_TOKEN` 이 담당.
 
 ## 리포트 포맷
@@ -87,7 +88,7 @@ frontmatter 필드 (총 12):
 - risk_level: "low" | "medium" | "high"
 - tags: string[] (3-6개)
 - summary: string (한 줄 요약, 60자 이내)
-- progress_estimate: number (0-100, %. Claude 종합 판정)
+- progress_estimate: number (0-100, %. Codex 종합 판정)
 - doc_scores: { design, technical, spec } 각 0-10 정수
 - todos: Item[] (3-10개, 다음 리포트까지 유효한 actionable 항목)
 - backlogs: Item[] (이 시점 미해결 이슈, 다음 리포트로 이월됨)
@@ -130,7 +131,7 @@ frontmatter 필드 (총 12):
 ## 작업 원칙
 - 프로젝트 repo는 read-only로만 다룬다
 - 모든 상태는 reports/{repo}/.meta.json에 기록
-- Claude 호출 비용을 의식하고 게이트 로직을 우회하지 않는다
+- Codex 구독 한도/호출 비용을 의식하고 게이트 로직을 우회하지 않는다
 - 리포트는 항상 한국어로 작성
 
 ## Known Issues

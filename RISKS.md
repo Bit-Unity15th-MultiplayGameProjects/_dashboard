@@ -7,29 +7,28 @@
 
 ---
 
-## 1. 🟡 Max 구독 rate limit
+## 1. 🟡 Codex 구독 한도 / auth 만료
 
 ### 발생 가능성
 중간. 운영 초기 N ≤ 15 수준에서는 쉽게 걸리지 않지만, 대시보드 소유자가 개인
-Claude Code 사용을 병행하거나 프로젝트 수가 늘어나면 빠르게 한계에 닿는다. 5시간
-rolling window 기준이라 저녁 일괄 commit → 한 시간에 대량 review cell 이 쏠리면
-peak 에서 rate limit 에 걸린다.
+Codex 사용을 병행하거나 프로젝트 수가 늘어나면 구독 한도에 닿을 수 있다.
+self-hosted runner 의 `~/.codex/auth.json` 이 만료/손상되면 모든 review cell 이 실패한다.
 
 ### 발생 시 영향
-- 한 번 걸리면 해당 5h window 가 흐를 때까지 **모든** review cell 이 failed.
-- 개인 `claude` 세션도 같이 차단돼 디버깅이 막힘.
+- 한 번 걸리면 해당 구독 계정으로 실행되는 review cell 이 failed.
+- auth 파일이 깨지면 self-hosted runner 에서 `codex login` 재시드 전까지 복구되지 않는다.
 - 실패한 cell 은 `.meta.json` 을 갱신하지 않으므로 다음 cron 틱에 재시도되는데,
   연속 rate limit 중이면 또 실패해 꼬리를 문다 (Actions 무료 분만 소모).
 
 ### 현재 완화책
-1. `max-parallel: 3` 으로 동시 호출 수 제한.
+1. `max-parallel: 1` 로 단일 ChatGPT-managed auth stream 만 사용.
 2. 4단계 게이트로 실제 호출 빈도를 떨어뜨림 (cron 30m 이지만 실제 호출은 repo 당
    최대 6h 에 1 회).
 3. `concurrency: report-${{ matrix.repo }}` + `cancel-in-progress: false` 로 큐잉.
 4. rate-limit 으로 실패한 cell 은 meta 를 안 건드려 자연 재시도됨.
 
 ### 권장 개선
-- **지수 backoff retry**: `Run Claude review` step 에 429 감지 시 30s → 120s → 300s
+- **지수 backoff retry**: `Run Codex review` step 에 429 감지 시 30s → 120s → 300s
   내부 retry (현재는 1회 시도 후 fail).
 - **quota dashboard**: `reports/_system/quota.json` 을 매 run 마다 기록해 주간 호출
   수 추세를 본다 (쿼터 근접 알람 마련).
@@ -50,8 +49,8 @@ peak 에서 rate limit 에 걸린다.
 | 병목 | 현재 값 | 붕괴 시점 |
 |---|---|---|
 | `gh repo list --limit 1000` | 1000 | ≥1000 repo (당장 문제 아님) |
-| Actions `max-parallel: 3` | 3 | cell 수 × 평균 15m / 3 ≒ 25 cell 에서 1h 소요 |
-| job timeout `timeout-minutes: 25` | 25 | 대형 diff 샘플링 + Claude 응답 지연이 합쳐지면 타이트 |
+| Actions `max-parallel: 1` | 1 | ChatGPT auth 보호를 위해 직렬화. cell 수가 늘면 전체 시간이 길어짐 |
+| job timeout `timeout-minutes: 25` | 25 | 대형 diff 샘플링 + Codex 응답 지연이 합쳐지면 타이트 |
 | ORG_REPO_PAT_BIT_UNITY_15TH 요율 | GitHub REST 5000/hour | discover + per-repo gate api 호출 합 |
 | git clone (full) time | repo 크기 비례 | Unity repo 는 금방 수백 MB — CI 디스크·전송량 압박 |
 
@@ -59,7 +58,7 @@ peak 에서 rate limit 에 걸린다.
 - `MAX_DIFF_BYTES` / `MAX_DIFF_LINES` 로 프롬프트 사이즈 상한.
 - `--filter=blob:none` 을 안 쓰는 대신 필요 시 depth=50 shallow clone (first report
   만).
-- 게이트로 실제 Claude 호출 빈도 자체를 낮춤.
+- 게이트로 실제 Codex 호출 빈도 자체를 낮춤.
 
 ### 권장 개선
 - **partial clone**: `git clone --filter=blob:none --no-checkout` 이후 필요한 파일만
@@ -86,14 +85,14 @@ peak 에서 rate limit 에 걸린다.
   노출시키게 유도, 리포트 frontmatter 를 조작해 dashboard 를 defacement.
 
 ### 발생 시 영향
-- **best case**: Claude 가 포맷 지시만 깨뜨려 (예: frontmatter 누락) Astro build 가
+- **best case**: Codex 가 포맷 지시만 깨뜨려 (예: frontmatter 누락) Astro build 가
   fail → 대시보드 멈춤.
 - **mid case**: 다른 팀을 음해하는 내용이 리포트에 들어가거나 risk_level 이
   인위적으로 low/high 로 조작 → 신뢰도 훼손.
-- **worst case**: secret 을 출력하도록 유도. 다행히 현재는 Claude 가 직접 shell 이나
-  env 에 접근하지 않는 headless 모드 (`claude -p --output-format text`) 라 secret
-  exfiltration 경로는 제한적. 단 `CLAUDE_CODE_OAUTH_TOKEN` 은 env 로 주입돼 있으니
-  만약 Claude CLI 가 env 를 system prompt 에 실수로 포함시킨다면 이론적 리스크.
+- **worst case**: secret 을 출력하도록 유도. 현재 Codex 는 `--sandbox read-only`
+  `--ask-for-approval never` 로 실행되고 API key 환경변수를 unset 하므로 repo 수정과
+  API-key 기반 우회는 차단한다. 단 self-hosted runner 의 `auth.json` 자체는 민감 파일이므로
+  runner 신뢰 경계가 중요하다.
 
 ### 현재 완화책 (다층 방어)
 
@@ -111,7 +110,7 @@ peak 에서 rate limit 에 걸린다.
 - 검증됨: open/close, mixed case, whitespace-variant, newline injection 7 개
   테스트 케이스에서 모두 치환 성공.
 
-**계층 3 — Claude 출력 post-validation** (`scripts/validate-report.py`,
+**계층 3 — Codex 출력 post-validation** (`scripts/validate-report.py`,
 CI 에서 `--strict`):
 - 스키마 위반 시 cell 이 fail 되어 해당 리포트는 `reports/` 에 커밋되지 않음
   → 손상된 리포트가 대시보드로 새지 않음. 검증 항목:
@@ -123,19 +122,20 @@ CI 에서 `--strict`):
   - body 안 중복 `---` 블록 (추가 frontmatter 주입)
   - 필수 섹션 헤딩 4 개
   - **secret 패턴 탐지** (전체 content 대상):
-    `sk-ant-oat…`, `ghp_…`, `github_pat_…`, `gho_…`, `ghu_…`, `ghs_…`, `ghr_…`
+    `sk-proj-…`, `sk-…`, Codex `auth.json` token fields, `sk-ant-oat…`,
+    `ghp_…`, `github_pat_…`, `gho_…`, `ghu_…`, `ghs_…`, `ghr_…`
 - 동일 validator 가 `test-prompt.sh` 에서는 warn-only 로 돌아 로컬 디버깅에도 재사용.
 
 **계층 4 — 인프라 격리** (원래 있던 완화책):
 - Astro zod 스키마: 빌드 타임 최종 관문 (계층 3 이 놓쳐도 여기서 막힘).
-- `claude -p --output-format text` headless 모드: 파일·env 접근 경로 차단.
+- `codex exec --sandbox read-only --ask-for-approval never`: repo 수정과 승인 요청 차단.
 - `MAX_DIFF_BYTES=100KB` / `MAX_DIFF_LINES=3000`: 거대 페이로드 삽입 완화.
 - TARGET_DIR 은 해당 repo clone 만 포함 → 다른 팀 repo 접근 불가.
 
 ### 남아있는 취약 지점 (정확히 알고 사는 것)
 
 1. **Unicode lookalike 로 태그 우회**: `<𝐬𝐭𝐮𝐝𝐞𝐧𝐭_𝐜𝐨𝐧𝐭𝐞𝐧𝐭>` (수학 볼드) 같은 코드
-   포인트는 현재 regex 로 안 잡힌다. 단 Claude 도 이걸 "실제 XML 태그" 로 해석할
+   포인트는 현재 regex 로 안 잡힌다. 단 Codex 도 이걸 "실제 XML 태그" 로 해석할
    가능성은 낮아 공격 성공률 자체가 낮음. 필요 시 `unicodedata.normalize('NFKD', ...)`
    전처리로 확장 가능.
 2. **semantic 조작**: 태그로 탈출 못해도, 태그 *안* 에서 "리뷰 대상 코드에 대해
@@ -144,9 +144,9 @@ CI 에서 `--strict`):
 3. **legitimate `<student_content>` 를 sanitize 하는 false positive**: 프로젝트가
    실제 리뷰 대상 코드로 XML/HTML 파일을 커밋하면서 `student_content` 라는 태그
    이름을 썼다면 치환된다. Unity 도메인에서는 거의 없을 케이스라 수용 가능.
-4. **CLAUDE_CODE_OAUTH_TOKEN 이 Claude 세션 system prompt 에 의도치 않게
-   포함되는 경우**: CLI 내부 구현 신뢰에 의존. 계층 3 의 secret regex 가 마지막
-   백업.
+4. **self-hosted runner auth.json 관리 실수**: auth 파일을 artifact/로그/repo 에
+   노출하면 구독 계정 세션이 유출된다. 계층 3 의 secret regex 와 workflow raw-output
+   redaction 이 마지막 백업이다.
 
 ### 추가 권장 (저비용)
 
@@ -186,19 +186,18 @@ PAT regenerate 시 동일 원칙을 유지하기 위해 보존.)
 
 ---
 
-## 5. 🟢 workflow permissions 과잉
+## 5. 🟢 ~~workflow permissions 과잉~~ — job 단위 권한으로 해소
 
 ### 상황
-`generate-reports.yml` 의 workflow-level `permissions: contents: write` 는 모든
-job (discover, review, summary) 에 적용된다. 실제로 write 가 필요한 건 review job
-의 push 단계뿐.
+`generate-reports.yml` 는 workflow-level `permissions: contents: read` 를 기본으로 두고,
+review job 에만 `contents: write` 를 부여한다.
 
 ### 영향
 낮음. `GITHUB_TOKEN` 은 애초에 repo-scoped 이고 만료가 짧다. 다만 최소권한 원칙
 관점에서 정리 가치 있음.
 
-### 권장 개선
-per-job permissions:
+### 현재 완화책
+per-job permissions 적용 완료:
 
 ```yaml
 jobs:
@@ -218,31 +217,17 @@ jobs:
 
 ---
 
-## 6. 🟡 첫 클론에서 clone URL 에 토큰 임베드
+## 6. 🟢 ~~첫 클론에서 clone URL 에 토큰 임베드~~ — GIT_ASKPASS 로 해소
 
 ### 상황
-`run-claude-review.sh` 의 `AUTHED_URL="https://x-access-token:${GH_TOKEN}@github.com/..."`
-는 토큰을 URL 에 박는다. Git 은 2.17+ 부터 error 로그에서 credential 을 redact 하지만,
-- `git remote -v` 류 명령이 추가되면 토큰이 평문 노출.
-- 3rd-party git 버전·hook 이 URL 을 출력할 여지.
+이전에는 `AUTHED_URL="https://x-access-token:${GH_TOKEN}@github.com/..."` 형태로
+토큰을 URL 에 박았다. 현재는 임시 `GIT_ASKPASS` helper 로 교체해 URL/remote 에
+credential 을 남기지 않는다.
 
 ### 현재 완화책
-- `git clone --quiet`.
-- `git remote` 계열 명령 사용 안 함.
-
-### 권장 개선
-- `GIT_ASKPASS` + 임시 helper 로 교체 (URL 에 credential 을 안 실음).
-  ```bash
-  ASKPASS=$(mktemp)
-  cat > "$ASKPASS" <<EOF
-  #!/usr/bin/env bash
-  echo "$GH_TOKEN"
-  EOF
-  chmod +x "$ASKPASS"
-  GIT_ASKPASS="$ASKPASS" git clone https://x-access-token@github.com/$ORG/$REPO.git $TARGET_DIR
-  rm -f "$ASKPASS"
-  ```
-- 또는 `git config --global credential.helper` 로 임시 설정.
+- `run-claude-review.sh` 의 `git_clone()` helper 가 `GIT_ASKPASS` 와
+  `GIT_TERMINAL_PROMPT=0` 을 사용.
+- cleanup trap 이 임시 askpass 파일을 삭제.
 
 ---
 
@@ -291,4 +276,4 @@ jobs:
 2. ~~**ORG_REPO_PAT_BIT_UNITY_15TH 를 Read-only 로 다운그레이드** (#4)~~ — ✅ 완료:
    초기 PAT setup (2026-04) 에서 Contents:Read 로 생성. 추가 조치 불필요.
 3. **rate limit retry with backoff** (#1) — workflow step 한 군데 수정.
-4. per-job permissions (#5), `GIT_ASKPASS` 전환 (#6) — 시간 나면.
+4. self-hosted runner auth health check/rotation runbook 보강.

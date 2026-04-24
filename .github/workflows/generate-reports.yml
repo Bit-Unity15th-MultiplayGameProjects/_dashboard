@@ -1,17 +1,14 @@
 # 주기적으로 프로젝트 repo 들을 스캔해, 게이트를 통과한 repo 에 한해
-# Claude 리뷰를 돌리고 결과를 reports/ 에 커밋한다.
+# Codex CLI 리뷰를 돌리고 결과를 reports/ 에 커밋한다.
 #
-# 참고: 스펙상 anthropics/claude-code-action@beta 호출이 명시돼 있었지만,
-# 해당 action 은 PR/issue 이벤트 기반 자동 응답용으로 설계돼 있어
-# "cron × matrix × 파일 출력" 조합에는 잘 맞지 않는다. 대신 같은 OAuth
-# 토큰을 쓰는 Claude Code CLI (`@anthropic-ai/claude-code`) 를 직접 호출한다.
-# test-prompt.sh 와 동일한 실행 경로라 dev/prod parity 도 유지된다.
+# Codex 는 self-hosted runner 의 ChatGPT-managed auth.json 을 사용한다.
+# API key 인증으로 우회되지 않도록 실행 step 에서 OPENAI_API_KEY 를 unset 한다.
 
 name: generate-reports
 
 on:
   schedule:
-    # 30 분마다 — 실제 Claude 호출은 게이트에서 걸러진다.
+    # 30 분마다 — 실제 Codex 호출은 게이트에서 걸러진다.
     - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
@@ -25,9 +22,9 @@ on:
         type: boolean
         default: false
 
-# reports/ 커밋 푸시 권한. org 의 다른 repo 읽기는 ORG_REPO_PAT_BIT_UNITY_15TH 으로.
+# 기본은 read-only. reports/ 커밋은 review job 에서만 contents: write 로 올린다.
 permissions:
-  contents: write
+  contents: read
 
 env:
   ORG: Bit-Unity15th-MultiplayGameProjects
@@ -40,6 +37,8 @@ jobs:
   # ===========================================================================
   discover:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       repos: ${{ steps.list.outputs.repos }}
       count: ${{ steps.list.outputs.count }}
@@ -77,17 +76,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ===========================================================================
-  # review — repo 하나당 cell. 게이트 → 프롬프트 → Claude → 커밋.
+  # review — repo 하나당 cell. 게이트 → 프롬프트 → Codex → 커밋.
   # ===========================================================================
   review:
     needs: discover
     # 빈 배열이면 skip (matrix 가 0개라 어차피 실행 안 되지만 명시적으로).
     if: needs.discover.outputs.count != '0'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, codex]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
-      # Max 구독 rate limit 을 쥐어짜지 않도록 동시 3개 이하로 제한.
-      max-parallel: 3
+      # ChatGPT-managed auth.json 은 한 runner/직렬 stream 에서만 쓰는 것이 안전하다.
+      max-parallel: 1
       matrix:
         repo: ${{ fromJson(needs.discover.outputs.repos) }}
     # 같은 repo 에 대한 중복 실행 방지. cron 이 30 분마다 돌고 긴 리뷰가 끼면
@@ -199,23 +200,42 @@ jobs:
           echo "[info] prompt bytes: $(wc -c <"$path")" >&2
 
       # ---------------------------------------------------------------------
-      # Claude CLI: headless 모드로 stdin 에 프롬프트 주입 → 파일로 저장.
+      # Codex CLI: ChatGPT 구독 인증으로 stdin 프롬프트를 실행 → 파일로 저장.
       # 성공 전까진 reports/ 에 파일을 남기지 않도록 mktemp 사용.
       # ---------------------------------------------------------------------
-      - name: Install Claude Code CLI
+      - name: Install Codex CLI
         if: steps.gate.outputs.should_run == 'true'
-        run: npm install -g @anthropic-ai/claude-code
+        run: npm i -g @openai/codex@latest
 
-      - name: Run Claude review
+      - name: Verify Codex ChatGPT auth
+        if: steps.gate.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+          AUTH_FILE="$CODEX_HOME/auth.json"
+          if [[ ! -f "$AUTH_FILE" ]]; then
+            echo "::error::Codex auth cache missing at $AUTH_FILE. Seed ChatGPT auth on the self-hosted runner first."
+            exit 1
+          fi
+          chmod 700 "$CODEX_HOME"
+          chmod 600 "$AUTH_FILE"
+          if ! jq -e '.auth_mode == "chatgpt" and ((.tokens.refresh_token // "") != "")' "$AUTH_FILE" >/dev/null; then
+            echo "::error::Codex auth cache is not ChatGPT-managed auth with a refresh token."
+            exit 1
+          fi
+          echo "[info] Codex ChatGPT auth cache present" >&2
+
+      - name: Run Codex review
         id: run
         if: steps.gate.outputs.should_run == 'true'
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PROMPT_FILE: ${{ steps.prompt.outputs.path }}
           REPO: ${{ matrix.repo }}
         timeout-minutes: 15
         run: |
           set -euo pipefail
+          unset OPENAI_API_KEY OPENAI_ORG_ID OPENAI_PROJECT_ID
+          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 
           # ISO 8601 compact: 파일명에 `:` 를 못 쓰므로 `-` 로 대체.
           TS=$(date -u +%Y-%m-%dT%H-%M-%SZ)
@@ -224,12 +244,19 @@ jobs:
           mkdir -p "$OUT_DIR"
 
           TMP=$(mktemp)
-          # --model claude-opus-4-7: 리뷰 품질 우선 (Sonnet 대비 Max 쿼터 소모 크지만
-          # doc scoring / progress estimation 등 판단 품질 차이가 실사용에서 체감됨).
-          if claude -p --output-format text --model claude-opus-4-7 < "$PROMPT_FILE" > "$TMP"; then
+          CODEX_STDOUT=$(mktemp)
+          if codex exec \
+              --model gpt-5.5 \
+              --sandbox read-only \
+              --ask-for-approval never \
+              --output-last-message "$TMP" \
+              - < "$PROMPT_FILE" > "$CODEX_STDOUT"; then
+            if [[ ! -s "$TMP" && -s "$CODEX_STDOUT" ]]; then
+              cp "$CODEX_STDOUT" "$TMP"
+            fi
             if [[ ! -s "$TMP" ]]; then
-              echo "::error::Claude output empty for $REPO"
-              rm -f "$TMP"
+              echo "::error::Codex output empty for $REPO"
+              rm -f "$TMP" "$CODEX_STDOUT"
               echo "status=failed" >> "$GITHUB_OUTPUT"
               exit 1
             fi
@@ -239,28 +266,43 @@ jobs:
             if ! python3 scripts/validate-report.py "$TMP" \
                  --project "$REPO" --strict; then
               echo "::error::validator rejected output for $REPO — discarding report"
-              echo "::group::rejected output (first 40 lines, for debug)"
-              head -40 "$TMP" >&2 || true
+              echo "::group::rejected output (redacted first 40 lines, for debug)"
+              python3 - "$TMP" <<'PY' >&2 || true
+              import re, sys
+              text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+              patterns = [
+                  r"sk-ant-oat\w{10,}",
+                  r"sk-proj-[A-Za-z0-9_-]{10,}",
+                  r"sk-[A-Za-z0-9_-]{20,}",
+                  r"github_pat_\w{10,}",
+                  r"gh[pousr]_\w{10,}",
+                  r'"(access_token|refresh_token|id_token)"\s*:\s*"[^"]+"',
+              ]
+              for pat in patterns:
+                  text = re.sub(pat, "[REDACTED_SECRET]", text)
+              print("\n".join(text.splitlines()[:40]))
+              PY
               echo "::endgroup::"
-              rm -f "$TMP"
+              rm -f "$TMP" "$CODEX_STDOUT"
               echo "status=failed" >> "$GITHUB_OUTPUT"
               exit 1
             fi
             mv "$TMP" "$OUT_FILE"
+            rm -f "$CODEX_STDOUT"
             {
               echo "out_file=$OUT_FILE"
               echo "timestamp=$TS"
               echo "status=success"
             } >> "$GITHUB_OUTPUT"
           else
-            echo "::error::Claude call failed for $REPO (exit $?)"
-            rm -f "$TMP"
+            echo "::error::Codex call failed for $REPO (exit $?)"
+            rm -f "$TMP" "$CODEX_STDOUT"
             echo "status=failed" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
       # ---------------------------------------------------------------------
-      # meta.json 업데이트: Claude 호출 성공 이후에만. 실패 시 meta 는 그대로라
+      # meta.json 업데이트: Codex 호출 성공 이후에만. 실패 시 meta 는 그대로라
       # 다음 cron 이 같은 범위로 재시도한다.
       # ---------------------------------------------------------------------
       - name: Update meta.json
@@ -302,7 +344,7 @@ jobs:
           cat "$META"
 
       # ---------------------------------------------------------------------
-      # 커밋 & 푸시. max-parallel=3 × 같은 branch 동시 push 경합 대비 rebase retry.
+      # 커밋 & 푸시. 같은 branch 동시 push 경합 대비 rebase retry.
       # [skip ci] 는 붙이지 않는다 → deploy.yml 이 트리거돼야 한다.
       # ---------------------------------------------------------------------
       - name: Commit and push reports
@@ -313,8 +355,8 @@ jobs:
           BRANCH:      ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          git config user.name  "claude-bot"
-          git config user.email "claude-bot@users.noreply.github.com"
+          git config user.name  "codex-bot"
+          git config user.email "codex-bot@users.noreply.github.com"
 
           git add "reports/${REPO}/"
 
@@ -349,7 +391,7 @@ jobs:
 
       # ---------------------------------------------------------------------
       # 이 cell 의 결과 요약을 artifact 로 뽑는다. summary 잡이 수집.
-      # always(): 게이트/Claude/푸시 어디서 실패하든 항상 무언가 남긴다.
+      # always(): 게이트/Codex/푸시 어디서 실패하든 항상 무언가 남긴다.
       # ---------------------------------------------------------------------
       - name: Write cell summary
         if: always()
@@ -398,6 +440,8 @@ jobs:
     needs: review
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Download all cell summaries
         uses: actions/download-artifact@v4

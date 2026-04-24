@@ -6,7 +6,7 @@
 # 채워 넣는 1회성 스크립트. 파이프라인은 다음 리포트 생성 때 자동으로 덮어쓰므로
 # 이 backfill 은 지금 당장 대시보드에 값이 보이게 하기 위한 것.
 #
-# Claude 토큰 비용 없음 (순수 GitHub REST API). gh CLI 인증 필요.
+# Codex 호출 비용 없음 (순수 GitHub REST API). gh CLI 인증 필요.
 #
 # 실행: ORG=Bit-Unity15th-MultiplayGameProjects bash scripts/backfill-meta-fields.sh
 #       (기본 ORG 값 내장되어 있어 env 생략해도 됨)

@@ -1,7 +1,7 @@
 # End-to-End Test Plan
 
 이 문서는 `generate-reports.yml` 파이프라인의 **동작 계약**을 시나리오별로 정리한
-테스트 계획서다. 실제 자동화 테스트 스위트가 없기 때문에 (프롬프트·Claude 호출은
+테스트 계획서다. 실제 자동화 테스트 스위트가 없기 때문에 (프롬프트·Codex 호출은
 LLM 비결정성 때문에 단위 테스트가 어렵다) **수동 실행 + Actions 로그 관측** 중심으로
 작성됐다. 파이프라인에 손을 댄 뒤엔 반드시 아래 7 시나리오 중 최소 1~3/5/6/7 을
 돌려본 뒤 main 에 머지한다.
@@ -16,7 +16,8 @@ LLM 비결정성 때문에 단위 테스트가 어렵다) **수동 실행 + Acti
 
 아래 사전조건은 모든 시나리오에 공통.
 
-1. Secrets 두 개가 설정되어 있다: `CLAUDE_CODE_OAUTH_TOKEN`, `ORG_REPO_PAT_BIT_UNITY_15TH`.
+1. self-hosted runner 에 `codex` label 이 있고, `~/.codex/auth.json` 이 ChatGPT auth 로
+   유지된다. `ORG_REPO_PAT_BIT_UNITY_15TH` secret 도 설정되어 있다.
    (값이 유효하지 않으면 discover 또는 run 단계에서 401/403 으로 조기 종료한다.)
 2. Pages source 가 "GitHub Actions" 로 설정되어 있다.
 3. 테스트용 repo 하나(이하 `$R`)를 고른다. 실제 프로젝트 repo 라면 `force=false` 로
@@ -53,7 +54,7 @@ Actions → generate-reports → **Run workflow** → `target_repo=$R`, `force=f
 | `Check gates` output `should_run` | `true` |
 | `Check gates` output `first_report` | `true` |
 | `Check gates` output `reason` | `first_report (no meta)` |
-| `Run Claude review` 종료 상태 | success |
+| `Run Codex review` 종료 상태 | success |
 | 신규 파일 | `reports/$R/<ISO>.md` 1 개 생성 |
 | 신규 파일 | `reports/$R/.meta.json` 생성 |
 | `.meta.json.last_sha` | `$R` 의 default branch HEAD SHA 와 일치 |
@@ -92,7 +93,7 @@ Actions → generate-reports → Run workflow → `target_repo=$R`, `force=false
 |---|---|
 | `Check gates` output `should_run` | `false` |
 | `Check gates` output `reason` | `interval gate: <0.xx>h < 6h` (SHA 가 다른 경우) 또는 `no new commits` (SHA 동일) |
-| `Build prompt` / `Run Claude review` | skip (`if: should_run == 'true'` 로 건너뜀) |
+| `Build prompt` / `Run Codex review` | skip (`if: should_run == 'true'` 로 건너뜀) |
 | 신규 커밋 | **없음** (reports/, .meta.json 모두 그대로) |
 
 **검증**:
@@ -290,6 +291,6 @@ gh api "orgs/Bit-Unity15th-MultiplayGameProjects/repos?type=all&per_page=100" \
 | discover 가 0 repo | `list-target-repos.sh`, `ORG_REPO_PAT_BIT_UNITY_15TH` | 토큰 만료·권한, ORG env |
 | gate 가 항상 skip | `check-needs-report.sh` | `.meta.json.last_sha` 가 remote HEAD 와 같은지 |
 | prompt build 실패 | `run-claude-review.sh` | clone 권한, `review-prompt.md` 치환 누락 |
-| Claude 출력 schema 에러 | `scripts/review-prompt.md`, `src/content/config.ts` | `test-prompt.sh --run` 으로 재현 |
+| Codex 출력 schema 에러 | `scripts/review-prompt.md`, `src/content/config.ts` | `test-prompt.sh --run` 으로 재현 |
 | push 실패 | workflow permissions, rebase retry 로직 | `GITHUB_TOKEN` 의 `contents: write` 여부 |
 | deploy 가 안 걸림 | `deploy.yml` paths-ignore | `.meta.json` 이 함께 커밋됐는지 |

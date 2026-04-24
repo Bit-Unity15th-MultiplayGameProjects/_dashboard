@@ -28,7 +28,7 @@ default (no --strict):
      priority ∈ {critical, high, medium, low}, resolved_from_backlog 항목엔 금지.
   10. (--project 지정 시) project 필드가 입력 repo 와 일치
   11. 본문 필수 6 개 섹션 헤딩. resolved_from_backlog 가 비어있지 않으면 § 7 도 필수
-  12. content 어디에도 알려진 secret 패턴이 없어야 함 (Anthropic OAuth / GitHub PAT 등)
+  12. content 어디에도 알려진 secret 패턴이 없어야 함 (OpenAI/Codex/Anthropic/GitHub 등)
 
 이 파일은 test-prompt.sh 와 generate-reports.yml 양쪽에서 재사용되므로
 검증 로직이 한 곳에만 존재한다 (drift 방지).
@@ -51,6 +51,12 @@ except ImportError:
 
 
 SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"sk-proj-[A-Za-z0-9_-]{10,}"), "OpenAI project API key (sk-proj-...)"),
+    (re.compile(r"sk-(?!ant-oat)[A-Za-z0-9_-]{20,}"), "OpenAI API key (sk-...)"),
+    (
+        re.compile(r'"(access_token|refresh_token|id_token)"\s*:\s*"[^"]{10,}"'),
+        "Codex auth.json token field",
+    ),
     (re.compile(r"sk-ant-oat\w{10,}"),    "Anthropic OAuth token (sk-ant-oat...)"),
     (re.compile(r"ghp_\w{10,}"),          "GitHub classic PAT (ghp_...)"),
     (re.compile(r"github_pat_\w{10,}"),   "GitHub fine-grained PAT (github_pat_...)"),
@@ -92,7 +98,7 @@ def _is_int(v: object) -> bool:
 
 
 def normalize(content: str) -> tuple[str, list[str]]:
-    """Claude 출력의 흔한 1 급 실수를 자동 보정.
+    """모델 출력의 흔한 1 급 실수를 자동 보정.
 
     현재 보정 대상:
       - 닫는 `---` 누락: opening fence 는 있는데 YAML 직후 본문 heading 이 바로

@@ -8,7 +8,7 @@
 ## 1. 프로젝트 개요
 
 `Bit-Unity15th-MultiplayGameProjects` organization 안의 프로젝트 repo들에
-대해 **Claude 기반 코드리뷰·진행도 리포트**를 GitHub Actions cron 으로 자동 생성하고,
+대해 **Codex 기반 코드리뷰·진행도 리포트**를 GitHub Actions cron 으로 자동 생성하고,
 생성된 리포트를 Astro 정적 사이트로 빌드하여 GitHub Pages 대시보드로 노출하는
 중앙 오케스트레이터 repo. 프로젝트 repo에는 워크플로우·스크립트·커밋을 일절 추가하지
 않고 오직 이 repo 한 곳에서 전체 파이프라인을 돌린다.
@@ -29,7 +29,7 @@
 1. **discover** — `list-target-repos.sh` 로 org 안 프로젝트 repo 목록을 뽑는다.
    archived repo, `_` prefix repo, `.reviewignore` 에 나열된 repo 는 제외.
 2. **review (repo 당 cell)** — `check-needs-report.sh` 의 3단계 skip 게이트
-   (SHA 변화 / 쿨다운 / 커밋수) 를 통과한 repo 만 clone·diff 추출 후 Claude CLI 를
+   (SHA 변화 / 쿨다운 / 커밋수) 를 통과한 repo 만 clone·diff 추출 후 Codex CLI 를
    호출한다. 결과는 `reports/<repo>/<iso>.md` 로 커밋·푸시. (`.meta.json` 이 없는
    first report 는 쿨다운·커밋수 게이트를 건너뛰고 바로 생성한다.)
 3. **deploy** — `reports/` 변경을 감지한 `deploy.yml` 이 Astro 로 정적 빌드하여
@@ -85,32 +85,45 @@ Zod 스키마는 `src/content/config.ts` 참조.
 > 이 repo 를 새로 포크하거나 org 안에 옮겨서 처음 동작시킬 때 한 번만 하면 된다.
 > 아래 3단계를 순서대로 따라가면 된다.
 
-### 3.1 Secrets 등록
+### 3.1 Codex self-hosted runner 준비
+
+review job 은 ChatGPT 구독 인증을 쓰는 Codex CLI 로 실행되므로 self-hosted runner 가 필요하다.
+GitHub-hosted runner 에 API key 를 넣는 방식은 이 프로젝트의 기본 운영 방식이 아니다.
+
+1. self-hosted runner 에 Codex CLI 설치:
+   ```bash
+   npm i -g @openai/codex@latest
+   ```
+2. browser 로그인이 가능한 신뢰된 머신에서 file-backed credential 을 켠 뒤 로그인:
+   ```toml
+   # ~/.codex/config.toml
+   cli_auth_credentials_store = "file"
+   forced_login_method = "chatgpt"
+   ```
+   ```bash
+   codex login
+   ```
+3. 생성된 `~/.codex/auth.json` 이 ChatGPT auth 인지 확인:
+   ```bash
+   jq '{auth_mode, has_refresh_token: ((.tokens.refresh_token // "") != "")}' ~/.codex/auth.json
+   ```
+   `auth_mode` 는 `"chatgpt"`, `has_refresh_token` 은 `true` 여야 한다.
+4. self-hosted runner 의 `$HOME/.codex/auth.json` 으로 배치하고 권한을 제한:
+   ```bash
+   chmod 700 ~/.codex
+   chmod 600 ~/.codex/auth.json
+   ```
+5. runner 에 `codex` label 을 붙인다. workflow 의 review job 은 `runs-on: [self-hosted, codex]` 를 사용한다.
+
+`auth.json` 은 access/refresh token 을 포함하므로 repo, issue, log, artifact 에 절대 저장하지 않는다.
+workflow 는 기존 파일을 매번 덮어쓰지 않고, Codex 가 refresh 한 파일을 runner 디스크에 유지한다.
+
+### 3.2 Secrets 등록
 
 **Settings → Secrets and variables → Actions → New repository secret** 에서
-아래 두 개를 등록한다.
+아래 PAT 를 등록한다. Codex 인증은 self-hosted runner 의 `auth.json` 으로 처리한다.
 
-#### 3.1.1 `CLAUDE_CODE_OAUTH_TOKEN`
-
-Claude Max 구독의 장기 OAuth 토큰. CI 에서 `claude -p` 를 headless 로 호출할 때
-쓴다.
-
-1. 로컬 머신에 Claude Code CLI 설치:
-   ```bash
-   npm install -g @anthropic-ai/claude-code
-   ```
-2. 최초 1회 `claude` 를 실행해 `/login` 으로 **Max 구독 계정으로 로그인**
-   (Console API key 계정과 다르다는 점 주의).
-3. 장기 OAuth 토큰 생성:
-   ```bash
-   claude setup-token
-   ```
-   출력된 토큰(`sk-ant-oat01-…`) 을 복사.
-4. GitHub → 이 repo → **Settings → Secrets → Actions → New repository secret**:
-   - Name: `CLAUDE_CODE_OAUTH_TOKEN`
-   - Secret: 위에서 복사한 토큰
-
-#### 3.1.2 `ORG_REPO_PAT_BIT_UNITY_15TH`
+#### 3.2.1 `ORG_REPO_PAT_BIT_UNITY_15TH`
 
 org 내 프로젝트 private repo 를 읽기 위한 fine-grained PAT (read-only).
 기본 `GITHUB_TOKEN` 으로는 org 의 다른 repo 에 접근할 수 없어 별도 PAT 이 필요하다.
@@ -132,7 +145,7 @@ org 내 프로젝트 private repo 를 읽기 위한 fine-grained PAT (read-only)
 > org 정책이 PAT approval 방식이면, org admin 이 approve 해야 토큰이 실제로 org
 > repo 에 접근할 수 있다. 생성 직후 403 이 나면 이 상태를 의심.
 
-### 3.2 GitHub Pages 활성화
+### 3.3 GitHub Pages 활성화
 
 기본값인 "Deploy from a branch" 로는 Actions 빌드 결과가 반영되지 않는다.
 
@@ -144,7 +157,7 @@ org 내 프로젝트 private repo 를 읽기 위한 fine-grained PAT (read-only)
 > `public/.nojekyll` 로 Jekyll 처리를 끄고 `build.assets: "assets"` 로 Astro 기본
 > `_astro/` 디렉토리를 회피한다. 배포 후에도 404 가 나면 [CLAUDE.md § Known Issues](./CLAUDE.md#known-issues) 의 2차 대안 참고.
 
-### 3.3 첫 빌드 트리거
+### 3.4 첫 빌드 트리거
 
 Secrets 등록과 Pages source 전환이 끝났으면:
 
@@ -184,7 +197,7 @@ env:
   MIN_COMMITS: "2"          # 이 값 미만 커밋이면 skip
 ```
 
-- `MIN_INTERVAL_HOURS` 를 늘리면 리포트 간격이 벌어져 Claude 호출 수가 준다.
+- `MIN_INTERVAL_HOURS` 를 늘리면 리포트 간격이 벌어져 Codex 호출 수가 준다.
 - `MIN_COMMITS` 를 늘리면 잔잔한 작업(1커밋짜리 오타 수정 등)에 리포트가 안
   낭비된다.
 - cron 자체를 `0 */2 * * *` 같이 늘리면 discover/gate 실행 빈도도 줄어
@@ -238,19 +251,19 @@ project-template
 
 ## 5. 트러블슈팅
 
-### 5.1 Max 구독 rate limit 초과 시
+### 5.1 Codex 구독 한도 초과 또는 auth 만료 시
 
-**증상**: review cell 로그에 Claude CLI 가 429 / "rate limit" 메시지로 종료,
+**증상**: review cell 로그에 Codex CLI 가 401/429/rate limit 메시지로 종료,
 cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 
 **완화 (순서대로 시도)**:
 
-1. `generate-reports.yml` 의 `max-parallel: 3` 을 `2` 또는 `1` 로 낮춰 동시 호출
-   수 감소.
+1. `generate-reports.yml` 은 기본 `max-parallel: 1` 이다. 단일 `auth.json` 을 여러 job 이
+   동시에 쓰지 않도록 이 값을 올리지 않는다.
 2. `MIN_INTERVAL_HOURS` 상향 (6 → 12), `MIN_COMMITS` 상향 (2 → 5) 으로 실제
    호출 빈도 감소.
-3. 5시간 rolling window 를 넘겨서도 계속 걸리면 플랜 업그레이드 검토
-   (아래 § 6 참고).
+3. 401 이 지속되면 trusted machine 에서 `codex login` 을 다시 수행하고 self-hosted
+   runner 의 `~/.codex/auth.json` 을 재시드한다.
 
 **빠른 복구**: rate limit 으로 실패한 cell 은 `.meta.json` 이 갱신되지 않으므로
 다음 cron 틱에서 같은 범위로 자연 재시도된다 (별도 조치 불필요).
@@ -289,10 +302,10 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 **재현·디버깅**:
 
 ```bash
-# dry-run — Claude 호출 없이 치환된 최종 프롬프트 확인
+# dry-run — Codex 호출 없이 치환된 최종 프롬프트 확인
 ./scripts/test-prompt.sh Exit-or-Die_EEN
 
-# 실제 Claude 호출 + 출력 frontmatter 스키마 자동 검증
+# 실제 Codex 호출 + 출력 frontmatter 스키마 자동 검증
 ./scripts/test-prompt.sh Exit-or-Die_EEN --run
 
 # 범위 오버라이드
@@ -308,7 +321,7 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 
 | 위치 | 언제 만지나 |
 |---|---|
-| 상단 HTML 주석 블록 | 변수 목록 갱신 시 (Claude 에게는 안 보임) |
+| 상단 HTML 주석 블록 | 변수 목록 갱신 시 (Codex 에게는 안 보임) |
 | `# 평가 기준` | 리뷰 깊이/범위 변경 (예: 새 축 추가) |
 | `# risk_level 판정 기준` | 판정이 일관되게 너무 낮거나 높게 나올 때 |
 | ``# `progress_estimate` / `todos` / `backlogs` 산출`` | priority 분포가 기울 때 (critical 남용 등), details 룰 변경 시 |
@@ -334,15 +347,16 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 
 ---
 
-## 6. 비용 예상
+## 6. 호출량 예상
 
-이 프로젝트는 Max 구독 OAuth 토큰으로 `claude -p` 를 호출한다. 즉 호출량은
-**토큰 소유자의 Max 쿼터에 카운팅**된다 (API key 과금 아님).
+이 프로젝트는 self-hosted runner 에 유지된 ChatGPT-managed Codex auth 로
+`codex exec --model gpt-5.5` 를 호출한다. 즉 기본 운영에서는 `OPENAI_API_KEY` 를 쓰지 않고,
+Codex 구독 한도에 카운팅된다.
 
 ### 6.1 일일 호출 수 계산식
 
 ```
-daily_claude_calls ≈ N × R
+daily_codex_calls ≈ N × R
 ```
 
 - `N` — 리뷰 대상 repo 수 (archived, `_`-prefix, `.reviewignore` 제외 후의 실제 cell 수).
@@ -350,33 +364,21 @@ daily_claude_calls ≈ N × R
   - 상한: `24 / MIN_INTERVAL_HOURS` (기본 6 → 최대 4 리포트/일/repo).
   - 실측: 활발한 프로젝트 2~3, 잔잔한 프로젝트 0~1 정도. 평균 1~2 로 잡으면 현실적.
 
-### 6.2 5시간 rolling window 추정
+### 6.2 운영상 주의
 
-Max 쿼터는 5시간 rolling window 로 카운팅된다:
-
-```
-calls_per_5h_window ≈ daily_claude_calls × (5/24)
-                     ≈ daily_claude_calls × 0.21
-```
-
-Anthropic 이 공개한 Max 플랜별 Claude Code 허용량(대략, 변동 가능):
-
-| 플랜 | 월 비용 | Sonnet 프롬프트/5h | 권장 일일 호출 한도 (개인 사용 포함) |
-|---|---|---|---|
-| Max 5x | $100 | 200–800 | ~1000 / day |
-| Max 20x | $200 | 800–3200 | ~4000 / day |
-
-실시간 정책은 https://www.anthropic.com/pricing 로 확인. 개인 `claude` 세션
-사용량이 합산된다는 점 유의.
+Codex 구독 한도와 모델 제공 범위는 계정/워크스페이스 정책에 따라 달라질 수 있다.
+CI 자동화의 일반 권장은 API key 이지만, 이 repo 는 trusted self-hosted runner 에서
+ChatGPT auth 를 유지하는 고급 패턴을 선택한다. `auth.json` 은 한 runner/직렬 stream 에서만
+사용하고, workflow 는 API key 환경변수를 명시적으로 unset 한다.
 
 ### 6.3 예시 시나리오
 
-| 규모 | N | 평균 R/day | 일일 호출 | 5h window | 플랜 권장 |
-|---|---:|---:|---:|---:|---|
-| 소규모 | 8 | 2 | 16 | ~3 | Max 5x (여유) |
-| 기본 (현재 예상) | 15 | 2 | 30 | ~6 | Max 5x |
-| 대규모 | 30 | 3 | 90 | ~19 | Max 5x (타이트) |
-| 병행 운영 | 60 | 3 | 180 | ~38 | Max 20x 권장 |
+| 규모 | N | 평균 R/day | 일일 Codex 호출 | 운영 메모 |
+|---|---:|---:|---:|---|
+| 소규모 | 8 | 2 | 16 | 여유 |
+| 기본 (현재 예상) | 15 | 2 | 30 | 기본 게이트 유지 |
+| 대규모 | 30 | 3 | 90 | interval/ignore 조정 권장 |
+| 병행 운영 | 60 | 3 | 180 | 별도 runner/auth stream 분리 검토 |
 
 ### 6.4 비용·쿼터 절감 레버
 
@@ -403,13 +405,13 @@ Node 20+ 필요.
 
 ```bash
 ./scripts/test-prompt.sh <repo>            # dry-run
-./scripts/test-prompt.sh <repo> --run      # 실제 Claude 호출 + 스키마 검증
+./scripts/test-prompt.sh <repo> --run      # 실제 Codex 호출 + 스키마 검증
 ```
 
 ## 디렉토리
 
 - `src/` — Astro 프론트엔드 (`lib/reports.ts` 에 todo/backlog 정규화 + priority 유틸)
-- `reports/{project}/*.md` — Claude 가 생성한 리뷰 리포트 (git 에 커밋됨)
+- `reports/{project}/*.md` — Codex 가 생성한 리뷰 리포트 (git 에 커밋됨)
 - `reports/{project}/.meta.json` — 각 프로젝트의 `last_sha`, `last_report_at`
 - `scripts/` — cron orchestration
 - `.github/workflows/` — CI/CD

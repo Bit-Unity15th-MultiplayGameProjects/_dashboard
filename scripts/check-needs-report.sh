@@ -2,7 +2,7 @@
 #
 # check-needs-report.sh
 #
-# 주어진 repo 에 대해 지금 Claude 리뷰를 돌려야 하는지 판단한다.
+# 주어진 repo 에 대해 지금 Codex 리뷰를 돌려야 하는지 판단한다.
 # CLAUDE.md "업데이트 정책" 의 3단계 게이트 (+ first-report 케이스) 구현.
 #
 # 게이트 순서:

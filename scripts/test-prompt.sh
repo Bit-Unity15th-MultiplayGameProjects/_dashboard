@@ -3,16 +3,17 @@
 # test-prompt.sh — 리뷰 프롬프트를 로컬에서 시험 실행하는 디버깅 스크립트.
 #
 # 사용 예:
-#   ./scripts/test-prompt.sh                        # Exit-or-Die_EEN, dry-run (claude 호출 안함)
+#   ./scripts/test-prompt.sh                        # Exit-or-Die_EEN, dry-run (Codex 호출 안함)
 #   ./scripts/test-prompt.sh Exit-or-Die_EEN        # 동일
-#   ./scripts/test-prompt.sh Exit-or-Die_EEN --run  # 실제 claude CLI 호출
+#   ./scripts/test-prompt.sh Exit-or-Die_EEN --run  # 실제 Codex CLI 호출
 #   ./scripts/test-prompt.sh Exit-or-Die_EEN --run --range HEAD~10..HEAD
 #   ./scripts/test-prompt.sh --repo /path/to/local  # org clone 대신 로컬 repo 사용
 #
 # 환경변수:
 #   ORG              - org 이름 (기본: Bit-Unity15th-MultiplayGameProjects)
 #   MAX_DIFF_LINES   - DIFF_CONTENT 에 포함할 최대 줄 수 (기본: 2000, 초과 시 truncate)
-#   CLAUDE_BIN       - claude CLI 경로 (기본: $(which claude))
+#   CODEX_BIN        - codex CLI 경로 (기본: $(which codex))
+#   CODEX_MODEL      - Codex 모델 (기본: gpt-5.5)
 #
 # CI 환경에서 실제 리포트 생성은 이 스크립트 대신 run-claude-review.sh 를 사용한다.
 # 이 파일은 어디까지나 **로컬 디버깅용** 이다.
@@ -22,14 +23,14 @@ set -euo pipefail
 # ---- 인자 파싱 ------------------------------------------------------------
 
 PROJECT_NAME="Exit-or-Die_EEN"
-RUN_CLAUDE=0
+RUN_CODEX=0
 RANGE_OVERRIDE=""
 LOCAL_REPO=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --run)
-      RUN_CLAUDE=1
+      RUN_CODEX=1
       shift
       ;;
     --range)
@@ -53,7 +54,8 @@ done
 
 ORG="${ORG:-Bit-Unity15th-MultiplayGameProjects}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-2000}"
-CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude || true)}"
+CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -261,14 +263,26 @@ path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as f:
     tmpl = f.read()
 # 파일 상단의 human-only 주석 블록 (<!-- ... -->) 제거.
-# 변수 placeholder 를 설명하는 주석이 Claude 에게도 같이 전달되면 혼란 유발.
+# 변수 placeholder 를 설명하는 주석이 Codex 에게도 같이 전달되면 혼란 유발.
 tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
+STUDENT_CONTROLLED = {
+    "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
+    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
+}
+BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
+
+def _scrub(s: str) -> str:
+    return s.encode("utf-8", "replace").decode("utf-8", "replace")
+
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
     "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
 ):
-    tmpl = tmpl.replace("{{" + key + "}}", os.environ.get(key, ""))
+    value = _scrub(os.environ.get(key, ""))
+    if key in STUDENT_CONTROLLED:
+        value = BOUNDARY_TAG_RE.sub("[boundary-filtered]", value)
+    tmpl = tmpl.replace("{{" + key + "}}", value)
 # 남아있는 {{FOO}} 가 있으면 경고 (치환 누락)
 leftovers = set(re.findall(r"\{\{([A-Z_]+)\}\}", tmpl))
 if leftovers:
@@ -277,25 +291,35 @@ sys.stdout.write(tmpl)
 PY
 )"
 
-# ---- 출력 or Claude 호출 --------------------------------------------------
+# ---- 출력 or Codex 호출 ---------------------------------------------------
 
-if [[ "$RUN_CLAUDE" -eq 0 ]]; then
-  echo "[info] dry-run: printing substituted prompt (no Claude call)." >&2
-  echo "[info] rerun with --run to actually call claude CLI." >&2
+if [[ "$RUN_CODEX" -eq 0 ]]; then
+  echo "[info] dry-run: printing substituted prompt (no Codex call)." >&2
+  echo "[info] rerun with --run to actually call Codex CLI." >&2
   printf '%s\n' "$FILLED_PROMPT"
   exit 0
 fi
 
-if [[ -z "$CLAUDE_BIN" ]]; then
-  echo "ERROR: claude CLI not found. Install Claude Code, or set CLAUDE_BIN." >&2
+if [[ -z "$CODEX_BIN" ]]; then
+  echo "ERROR: codex CLI not found. Install @openai/codex, or set CODEX_BIN." >&2
   exit 1
 fi
 
-echo "[info] calling $CLAUDE_BIN -p (headless)" >&2
+echo "[info] calling $CODEX_BIN exec --model $CODEX_MODEL" >&2
 
 TMP_OUT="$(mktemp)"
-trap 'rm -f "$TMP_OUT"' EXIT
-printf '%s\n' "$FILLED_PROMPT" | "$CLAUDE_BIN" -p --output-format text --model claude-opus-4-7 > "$TMP_OUT"
+TMP_STDOUT="$(mktemp)"
+trap 'rm -f "$TMP_OUT" "$TMP_STDOUT"' EXIT
+unset OPENAI_API_KEY OPENAI_ORG_ID OPENAI_PROJECT_ID
+printf '%s\n' "$FILLED_PROMPT" | "$CODEX_BIN" exec \
+  --model "$CODEX_MODEL" \
+  --sandbox read-only \
+  --ask-for-approval never \
+  --output-last-message "$TMP_OUT" \
+  - > "$TMP_STDOUT"
+if [[ ! -s "$TMP_OUT" && -s "$TMP_STDOUT" ]]; then
+  cp "$TMP_STDOUT" "$TMP_OUT"
+fi
 
 # 출력 스키마 + secret 정합성 체크. 로컬 디버깅용이므로 실패해도 출력은
 # 그대로 stdout 으로 내보내고 --strict 는 붙이지 않는다.

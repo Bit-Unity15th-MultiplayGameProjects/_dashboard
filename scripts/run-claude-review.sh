@@ -4,7 +4,7 @@
 #
 # 타겟 repo 를 clone → commit log / diff stat / diff content 를 뽑아
 # review-prompt.md 에 치환해 최종 프롬프트 파일을 만든다.
-# 최종 파일 경로를 stdout 에 한 줄로 출력 (workflow 에서 Claude 호출 시 사용).
+# 최종 파일 경로를 stdout 에 한 줄로 출력 (workflow 에서 Codex 호출 시 사용).
 #
 # 인자:
 #   $1  repo name          (예: Exit-or-Die_EEN)
@@ -13,7 +13,7 @@
 #
 # 환경 변수:
 #   ORG               (필수)
-#   GH_TOKEN          (필수; HTTPS clone 인증용)
+#   GH_TOKEN          (필수; GIT_ASKPASS 기반 HTTPS clone 인증용)
 #   MAX_DIFF_BYTES    (선택, 기본 102400=100KB)
 #   MAX_DIFF_LINES    (선택, 기본 3000)    — diff 줄 수 하드 리밋
 #   TARGET_DIR        (선택, 기본 "target-repo")  — clone 경로
@@ -51,6 +51,7 @@ META_FILE="$ROOT_DIR/reports/$REPO/.meta.json"
 [[ -f "$TEMPLATE" ]] || { echo "ERROR: template missing: $TEMPLATE" >&2; exit 1; }
 
 FILE_DIFF_TMP=""
+ASKPASS=""
 cleanup() {
   if [[ "$KEEP_TARGET" != "1" ]]; then
     rm -rf "$TARGET_DIR"
@@ -60,26 +61,44 @@ cleanup() {
   if [[ -n "$FILE_DIFF_TMP" ]]; then
     rm -f "$FILE_DIFF_TMP"
   fi
+  if [[ -n "$ASKPASS" ]]; then
+    rm -f "$ASKPASS"
+  fi
 }
 trap cleanup EXIT
 
+ASKPASS="$(mktemp)"
+cat >"$ASKPASS" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  Username*) printf '%s\n' "x-access-token" ;;
+  Password*) printf '%s\n' "${GH_TOKEN:?GH_TOKEN env required}" ;;
+  *) printf '\n' ;;
+esac
+EOF
+chmod 700 "$ASKPASS"
+
+git_clone() {
+  GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 git clone "$@"
+}
+
 # ---- clone -----------------------------------------------------------------
-# HTTPS + token 으로 clone. --filter=blob:none 은 blob 을 lazy-fetch 하여
+# HTTPS + GIT_ASKPASS token 으로 clone. --filter=blob:none 은 blob 을 lazy-fetch 하여
 # 초기 전송량을 줄이지만, 이후 git log/diff 가 필요할 때 추가 fetch 가 발생한다.
 # 단순성을 위해 그냥 full clone 하되 --depth 는 FROM_SHA 가 없거나 INITIAL 인
 # 경우에만 얕게. 있는 경우엔 FROM_SHA 가 history 에 존재해야 하므로 full.
 
-AUTHED_URL="https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${REPO}.git"
+AUTHED_URL="https://github.com/${ORG}/${REPO}.git"
 
 rm -rf "$TARGET_DIR"
 
 if [[ -z "$FROM_SHA" || "$FROM_SHA" == "INITIAL" ]]; then
   echo "[info] first report — shallow clone (depth=50)" >&2
-  git clone --quiet --depth=50 "$AUTHED_URL" "$TARGET_DIR"
+  git_clone --quiet --depth=50 "$AUTHED_URL" "$TARGET_DIR"
 else
   # full clone. 프로젝트 repo 규모상 대부분 수 MB 이하라 감당 가능.
   echo "[info] full clone for range $FROM_SHA..$TO_SHA" >&2
-  git clone --quiet "$AUTHED_URL" "$TARGET_DIR"
+  git_clone --quiet "$AUTHED_URL" "$TARGET_DIR"
 
   # FROM_SHA 가 실제로 히스토리에 있는지 확인; 없으면 first-report 로 강등.
   if ! git -C "$TARGET_DIR" cat-file -e "$FROM_SHA" 2>/dev/null; then
@@ -284,11 +303,11 @@ fi
 # 매 run 얕은 clone (가벼움) — 항상 최신 기준을 사용.
 SAMPLE_REPO="_sample"
 SAMPLE_DIR="/tmp/sample-docs-${REPO//\//__}"
-SAMPLE_AUTHED_URL="https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${SAMPLE_REPO}.git"
+SAMPLE_AUTHED_URL="https://github.com/${ORG}/${SAMPLE_REPO}.git"
 rm -rf "$SAMPLE_DIR"
 
 SAMPLE_DOCS_REFERENCE="(rubric 레퍼런스 로드 실패 — 기본 기준으로 평가)"
-if git clone --quiet --depth=1 "$SAMPLE_AUTHED_URL" "$SAMPLE_DIR" 2>/dev/null; then
+if git_clone --quiet --depth=1 "$SAMPLE_AUTHED_URL" "$SAMPLE_DIR" 2>/dev/null; then
   if [[ -d "$SAMPLE_DIR/docs" ]]; then
     # Python 으로 safe aggregation — shell `find | while | head -c` 는 head 가
     # 상한에 도달하는 순간 상류에 SIGPIPE 를 보내 `set -e pipefail` 와 충돌.
@@ -355,12 +374,12 @@ import os, sys, re
 src, dst = sys.argv[1], sys.argv[2]
 with open(src, "r", encoding="utf-8") as f:
     tmpl = f.read()
-# 상단 HTML 주석 블록 strip (휴먼용 메모 — Claude 에겐 보내지 않음)
+# 상단 HTML 주석 블록 strip (휴먼용 메모 — Codex 에겐 보내지 않음)
 tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 
 # 외부 입력으로 통제 가능한 필드: 경계 태그를 위조/탈출하는 시도 차단.
 # <student_content> / </student_content> 의 대소문자·공백 변형 모두 치환.
-# PREVIOUS_BACKLOG 은 Claude 가 생성한 이전 리포트 내용이라 2차 주입 방어,
+# PREVIOUS_BACKLOG 은 모델이 생성한 이전 리포트 내용이라 2차 주입 방어,
 # SAMPLE_DOCS_REFERENCE 는 org 관리자 통제지만 혹시 docs 에 예시 태그가 쓰이면
 # 의도치 않게 경계가 깨질 수 있어 함께 sanitize.
 STUDENT_CONTROLLED = {

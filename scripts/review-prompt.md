@@ -12,7 +12,7 @@
   {{PREVIOUS_BACKLOG}}        - 이전 리포트의 backlogs 필드 (없으면 안내 문구)
   {{SAMPLE_DOCS_REFERENCE}}   - _sample/docs 에서 추출한 rubric 참고 (8KB cap)
 
-이 상단 HTML 주석 블록은 run-claude-review.sh 가 Claude 호출 전에 strip 한다.
+이 상단 HTML 주석 블록은 run-claude-review.sh 가 Codex 호출 전에 strip 한다.
 수정 시 주의: 블록 내부에 삼중 하이픈 + 꺾쇠 (닫는 주석 마커) 를 포함시키지 말 것.
 정규식 매칭이 조기 종료되어 strip 이 깨진다.
 -->
