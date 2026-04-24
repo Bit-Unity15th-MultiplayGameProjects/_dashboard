@@ -305,16 +305,15 @@ if [[ -z "$CODEX_BIN" ]]; then
   exit 1
 fi
 
-echo "[info] calling $CODEX_BIN exec --model $CODEX_MODEL" >&2
+echo "[info] calling $CODEX_BIN --ask-for-approval never exec --model $CODEX_MODEL" >&2
 
 TMP_OUT="$(mktemp)"
 TMP_STDOUT="$(mktemp)"
 trap 'rm -f "$TMP_OUT" "$TMP_STDOUT"' EXIT
 unset OPENAI_API_KEY OPENAI_ORG_ID OPENAI_PROJECT_ID
-printf '%s\n' "$FILLED_PROMPT" | "$CODEX_BIN" exec \
+printf '%s\n' "$FILLED_PROMPT" | "$CODEX_BIN" --ask-for-approval never exec \
   --model "$CODEX_MODEL" \
   --sandbox read-only \
-  --ask-for-approval never \
   --output-last-message "$TMP_OUT" \
   - > "$TMP_STDOUT"
 if [[ ! -s "$TMP_OUT" && -s "$TMP_STDOUT" ]]; then

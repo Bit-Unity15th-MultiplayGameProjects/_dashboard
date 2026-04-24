@@ -350,7 +350,7 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 ## 6. 호출량 예상
 
 이 프로젝트는 self-hosted runner 에 유지된 ChatGPT-managed Codex auth 로
-`codex exec --model gpt-5.5` 를 호출한다. 즉 기본 운영에서는 `OPENAI_API_KEY` 를 쓰지 않고,
+`codex --ask-for-approval never exec --model gpt-5.5` 를 호출한다. 즉 기본 운영에서는 `OPENAI_API_KEY` 를 쓰지 않고,
 Codex 구독 한도에 카운팅된다.
 
 ### 6.1 일일 호출 수 계산식

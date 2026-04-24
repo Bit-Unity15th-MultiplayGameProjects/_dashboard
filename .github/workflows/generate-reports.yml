@@ -287,10 +287,9 @@ jobs:
           TMP=$(mktemp)
           CODEX_STDOUT=$(mktemp)
           CODEX_CMD="${CODEX_BIN:-codex}"
-          if "$CODEX_CMD" exec \
+          if "$CODEX_CMD" --ask-for-approval never exec \
               --model gpt-5.5 \
               --sandbox read-only \
-              --ask-for-approval never \
               --output-last-message "$TMP" \
               - < "$PROMPT_FILE" > "$CODEX_STDOUT"; then
             if [[ ! -s "$TMP" && -s "$CODEX_STDOUT" ]]; then

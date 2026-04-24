@@ -128,7 +128,7 @@ CI 에서 `--strict`):
 
 **계층 4 — 인프라 격리** (원래 있던 완화책):
 - Astro zod 스키마: 빌드 타임 최종 관문 (계층 3 이 놓쳐도 여기서 막힘).
-- `codex exec --sandbox read-only --ask-for-approval never`: repo 수정과 승인 요청 차단.
+- `codex --ask-for-approval never exec --sandbox read-only`: repo 수정과 승인 요청 차단.
 - `MAX_DIFF_BYTES=100KB` / `MAX_DIFF_LINES=3000`: 거대 페이로드 삽입 완화.
 - TARGET_DIR 은 해당 repo clone 만 포함 → 다른 팀 repo 접근 불가.
 

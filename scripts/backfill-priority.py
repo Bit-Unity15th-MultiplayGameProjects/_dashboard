@@ -167,13 +167,13 @@ def call_codex(prompt: str) -> str:
     proc = subprocess.run(
         [
             CODEX_BIN,
+            "--ask-for-approval",
+            "never",
             "exec",
             "--model",
             MODEL,
             "--sandbox",
             "read-only",
-            "--ask-for-approval",
-            "never",
             "-",
         ],
         input=prompt,
