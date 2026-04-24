@@ -303,21 +303,7 @@ jobs:
                  --project "$REPO" --strict; then
               echo "::error::validator rejected output for $REPO — discarding report"
               echo "::group::rejected output (redacted first 40 lines, for debug)"
-              python3 - "$TMP" <<'PY' >&2 || true
-              import re, sys
-              text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-              patterns = [
-                  r"sk-ant-oat\w{10,}",
-                  r"sk-proj-[A-Za-z0-9_-]{10,}",
-                  r"sk-[A-Za-z0-9_-]{20,}",
-                  r"github_pat_\w{10,}",
-                  r"gh[pousr]_\w{10,}",
-                  r'"(access_token|refresh_token|id_token)"\s*:\s*"[^"]+"',
-              ]
-              for pat in patterns:
-                  text = re.sub(pat, "[REDACTED_SECRET]", text)
-              print("\n".join(text.splitlines()[:40]))
-              PY
+              python3 -c 'import re, sys; text = open(sys.argv[1], encoding="utf-8", errors="replace").read(); patterns = [r"sk-ant-oat\w{10,}", r"sk-proj-[A-Za-z0-9_-]{10,}", r"sk-[A-Za-z0-9_-]{20,}", r"github_pat_\w{10,}", r"gh[pousr]_\w{10,}", r"""\"(access_token|refresh_token|id_token)\"\s*:\s*\"[^\"]+\""""]; [None for pat in patterns for _ in [0] if not (text := re.sub(pat, "[REDACTED_SECRET]", text))]; print("\n".join(text.splitlines()[:40]))' "$TMP" >&2 || true
               echo "::endgroup::"
               rm -f "$TMP" "$CODEX_STDOUT"
               echo "status=failed" >> "$GITHUB_OUTPUT"
