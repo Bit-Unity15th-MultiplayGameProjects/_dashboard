@@ -30,6 +30,8 @@ env:
   ORG: Bit-Unity15th-MultiplayGameProjects
   MIN_INTERVAL_HOURS: "6"
   MIN_COMMITS: "2"
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
 
 jobs:
   # ===========================================================================
