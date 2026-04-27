@@ -853,10 +853,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   }
 
   .project-chat__bubble {
-    max-width: min(270px, calc(100% - 36px));
-    min-width: 0;
-    width: fit-content;
-    flex: 0 1 auto;
+    width: max-content;
+    max-width: 100%;
     padding: 8px 9px;
     border: 1px solid var(--border-subtle);
     border-radius: 5px;
@@ -865,8 +863,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
   .project-chat__stack {
     display: flex;
-    max-width: min(270px, calc(100% - 42px));
-    min-width: 0;
+    width: min(270px, calc(100% - 82px));
+    min-width: 120px;
     flex-direction: column;
     align-items: flex-start;
   }
