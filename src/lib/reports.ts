@@ -18,6 +18,13 @@ export interface ProjectMeta {
   // 프로젝트 전체 기여자 displayName, 중복 제거 + 커밋 수 내림차순.
   // 파이프라인이 `git shortlog -sn` 파싱해 기록. 기존 리포트엔 없을 수 있음.
   contributors?: string[];
+  // Stable GitHub repository identity. Names can change, so CI uses these
+  // fields to keep report history attached to the same repository after rename.
+  repo_id?: number | string;
+  repo_node_id?: string;
+  repo_name?: string;
+  repo_full_name?: string;
+  repo_previous_names?: string[];
 }
 
 // Astro glob loader 는 entry.id 를 소문자화한다. 반면 실제 디렉토리명 (`YJ`)

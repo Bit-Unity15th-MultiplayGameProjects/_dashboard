@@ -150,6 +150,15 @@ jobs:
       # ---------------------------------------------------------------------
       # 게이트: force=true 면 우회. 아니면 check-needs-report.sh 에 위임.
       # ---------------------------------------------------------------------
+      - name: Reconcile report directory
+        id: report_dir
+        env:
+          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          REPO: ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+          bash scripts/reconcile-report-dir.sh "$REPO"
+
       - name: Check gates
         id: gate
         env:
@@ -202,6 +211,44 @@ jobs:
       # 추출이 PyYAML 에 의존한다. ubuntu-latest 에 대개 설치돼 있지만
       # runner 이미지 변경 대비해 명시적으로 보장.
       # ---------------------------------------------------------------------
+      - name: Commit reconciled report directory
+        if: steps.report_dir.outputs.changed == 'true' && steps.gate.outputs.should_run != 'true'
+        env:
+          REPO:   ${{ matrix.repo }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name  "codex-bot"
+          git config user.email "codex-bot@users.noreply.github.com"
+
+          git add -A reports
+
+          if git diff --staged --quiet; then
+            echo "[info] no reconciliation changes staged" >&2
+            exit 0
+          fi
+
+          MSG="chore(reports): reconcile ${REPO} history"
+          git commit -m "$MSG"
+
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${BRANCH}"; then
+              echo "[info] pushed reconciliation on attempt $attempt"
+              break
+            fi
+            echo "[warn] push attempt $attempt failed; fetch + rebase + retry" >&2
+            git fetch origin "$BRANCH"
+            git rebase "origin/${BRANCH}" || {
+              echo "::error::rebase conflict on attempt $attempt; aborting"
+              git rebase --abort || true
+              exit 1
+            }
+            if [[ $attempt -eq 3 ]]; then
+              echo "::error::push failed 3x"
+              exit 1
+            fi
+          done
+
       - name: Ensure Python deps
         if: steps.gate.outputs.should_run == 'true'
         run: |
@@ -335,6 +382,7 @@ jobs:
       - name: Update meta.json
         if: steps.run.outputs.status == 'success'
         env:
+          GH_TOKEN:    ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
           REPO:        ${{ matrix.repo }}
           CURRENT_SHA: ${{ steps.gate.outputs.current_sha }}
           OUT_FILE:    ${{ steps.run.outputs.out_file }}
@@ -346,8 +394,10 @@ jobs:
 
           if [[ -f "$META" ]]; then
             PREV_COUNT=$(jq -r '.report_count // 0' "$META")
+            PREV_JSON=$(cat "$META")
           else
             PREV_COUNT=0
+            PREV_JSON='{}'
           fi
           NEW_COUNT=$((PREV_COUNT + 1))
 
@@ -358,13 +408,24 @@ jobs:
             FACTS_JSON='{}'
           fi
 
+          REPO_JSON=$(
+            gh api "repos/${ORG}/${REPO}" \
+              --jq '{repo_id:.id, repo_node_id:.node_id, repo_name:.name, repo_full_name:.full_name}' \
+              2>/dev/null || echo '{}'
+          )
+
           jq -n \
+            --argjson prev "$PREV_JSON" \
             --arg sha   "$CURRENT_SHA" \
             --arg at    "$NOW" \
             --arg file  "$OUT_FILE" \
             --argjson n "$NEW_COUNT" \
+            --argjson repo "$REPO_JSON" \
             --argjson facts "$FACTS_JSON" \
-            '{last_sha: $sha, last_report_at: $at, last_report_file: $file, report_count: $n} + $facts' \
+            '$prev
+              + {last_sha: $sha, last_report_at: $at, last_report_file: $file, report_count: $n}
+              + $repo
+              + $facts' \
             > "$META"
 
           echo "[info] meta updated:"
@@ -385,7 +446,7 @@ jobs:
           git config user.name  "codex-bot"
           git config user.email "codex-bot@users.noreply.github.com"
 
-          git add "reports/${REPO}/"
+          git add -A reports
 
           if git diff --staged --quiet; then
             echo "[info] no changes staged (unexpected, but tolerable)" >&2
