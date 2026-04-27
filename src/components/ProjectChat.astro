@@ -213,8 +213,6 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       try {
         return new Intl.DateTimeFormat("ko-KR", {
           timeZone: "Asia/Seoul",
-          month: "2-digit",
-          day: "2-digit",
           hour: "2-digit",
           minute: "2-digit",
         }).format(new Date(iso));
@@ -241,7 +239,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       for (const message of messages) {
         const item = document.createElement("article");
         item.className = "project-chat__message";
-        if (message.user_login === ownLogin) item.classList.add("is-own");
+        const isOwn = message.user_login === ownLogin;
+        if (isOwn) item.classList.add("is-own");
 
         const avatar = document.createElement("div");
         avatar.className = "project-chat__avatar";
@@ -255,23 +254,34 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
           avatar.textContent = createInitial(message.user_login);
         }
 
+        const stack = document.createElement("div");
+        stack.className = "project-chat__stack";
+
+        if (!isOwn) {
+          const name = document.createElement("span");
+          name.className = "project-chat__name";
+          name.textContent = message.user_name || message.user_login;
+          stack.appendChild(name);
+        }
+
         const body = document.createElement("div");
         body.className = "project-chat__bubble";
 
-        const meta = document.createElement("div");
-        meta.className = "project-chat__meta";
-        const name = document.createElement("span");
-        name.textContent = message.user_name || message.user_login;
-        const time = document.createElement("time");
-        time.dateTime = message.created_at;
-        time.textContent = formatTime(message.created_at);
-        meta.append(name, time);
-
         const text = document.createElement("p");
         text.textContent = message.body;
+        body.appendChild(text);
 
-        body.append(meta, text);
-        item.append(avatar, body);
+        const time = document.createElement("time");
+        time.className = "project-chat__time";
+        time.dateTime = message.created_at;
+        time.textContent = formatTime(message.created_at);
+
+        stack.append(body);
+        if (isOwn) {
+          item.append(time, stack);
+        } else {
+          item.append(avatar, stack, time);
+        }
         fragment.appendChild(item);
       }
       listEl.appendChild(fragment);
@@ -811,14 +821,6 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     text-align: left;
   }
 
-  .project-chat__message.is-own .project-chat__meta {
-    justify-content: flex-end;
-  }
-
-  .project-chat__message.is-own .project-chat__meta span {
-    display: none;
-  }
-
   .project-chat__avatar {
     display: grid;
     width: 24px;
@@ -859,24 +861,42 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     background: var(--bg);
   }
 
-  .project-chat__meta {
+  .project-chat__stack {
     display: flex;
-    gap: 8px;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 5px;
+    max-width: min(270px, calc(100% - 42px));
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .project-chat__message.is-own .project-chat__stack {
+    align-items: flex-end;
+  }
+
+  .project-chat__name {
+    max-width: 170px;
+    overflow: hidden;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 0 0 4px 2px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-chat__time {
+    align-self: flex-end;
+    flex: 0 0 auto;
+    padding-bottom: 2px;
     color: var(--fg-3);
     font-family: var(--mono);
     font-size: 10px;
   }
 
-  .project-chat__meta span {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--fg-2);
-    font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .project-chat__message.is-own .project-chat__time {
+    margin-right: -1px;
   }
 
   .project-chat__bubble p {
