@@ -43,6 +43,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   class="project-chat"
   data-project-chat
   data-open="false"
+  data-has-unread="false"
   data-project={project}
   data-org={org}
   data-supabase-url={supabaseUrl}
@@ -66,6 +67,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       <span>{toggleLabel}</span>
       <small>{channelName}</small>
     </span>
+    <span class="project-chat__unread-dot" data-chat-unread-dot aria-hidden="true"></span>
   </button>
 
   <div
@@ -124,6 +126,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     if (roots.length === 0) return;
 
     const SESSION_KEY = "bitunity_dashboard_chat_session_v1";
+    const READ_STATE_KEY = "bitunity_dashboard_chat_reads_v1";
+    const CHAT_READ_EVENT = "bitunity:chat-read-state";
     const MAX_MESSAGES = 120;
 
     function setText(el, text) {
@@ -152,6 +156,72 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
     function clearSession() {
       localStorage.removeItem(SESSION_KEY);
+    }
+
+    function normalizeChatKey(project) {
+      return String(project || "").toLowerCase();
+    }
+
+    function readChatReads() {
+      try {
+        const raw = localStorage.getItem(READ_STATE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function writeChatReads(reads) {
+      try {
+        localStorage.setItem(READ_STATE_KEY, JSON.stringify(reads));
+      } catch {
+        // localStorage can be unavailable in strict privacy modes.
+      }
+    }
+
+    function getChatReadAt(project, login) {
+      const byUser = readChatReads()[String(login || "").toLowerCase()] || {};
+      return byUser[normalizeChatKey(project)] || "";
+    }
+
+    function setChatReadAt(project, login, readAt) {
+      const userKey = String(login || "").toLowerCase();
+      const projectKey = normalizeChatKey(project);
+      if (!userKey || !projectKey || !readAt) return;
+      const reads = readChatReads();
+      reads[userKey] = { ...(reads[userKey] || {}), [projectKey]: readAt };
+      writeChatReads(reads);
+      window.dispatchEvent(
+        new CustomEvent(CHAT_READ_EVENT, {
+          detail: { project: projectKey, login: userKey, readAt },
+        }),
+      );
+    }
+
+    function latestCreatedAt(messages) {
+      if (!Array.isArray(messages) || messages.length === 0) return "";
+      return messages.reduce((latest, message) => {
+        if (!message.created_at) return latest;
+        if (!latest) return message.created_at;
+        return new Date(message.created_at).getTime() >
+          new Date(latest).getTime()
+          ? message.created_at
+          : latest;
+      }, "");
+    }
+
+    function hasUnreadMessage(messages, project, login) {
+      const readAt = getChatReadAt(project, login);
+      if (!readAt || !Array.isArray(messages)) return false;
+      const readTime = new Date(readAt).getTime();
+      return messages.some((message) => {
+        if (
+          String(message.user_login || "").toLowerCase() ===
+          String(login || "").toLowerCase()
+        )
+          return false;
+        return new Date(message.created_at).getTime() > readTime;
+      });
     }
 
     function cleanAuthHash() {
@@ -321,11 +391,40 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       let user = null;
       let login = "";
       let pollTimer = null;
+      let currentMessages = [];
+      let currentLatestMessageAt = "";
+
+      function setUnread(hasUnread) {
+        root.dataset.hasUnread = hasUnread ? "true" : "false";
+        toggleBtn.title = hasUnread ? "새 메시지가 있습니다." : "";
+      }
+
+      function markCurrentMessagesRead() {
+        if (!login) return;
+        const readAt = currentLatestMessageAt || new Date().toISOString();
+        setChatReadAt(project, login, readAt);
+        setUnread(false);
+      }
+
+      function syncUnreadState() {
+        if (!login) {
+          setUnread(false);
+          return;
+        }
+        if (!getChatReadAt(project, login)) {
+          const baseline = currentLatestMessageAt || new Date().toISOString();
+          setChatReadAt(project, login, baseline);
+          setUnread(false);
+          return;
+        }
+        setUnread(hasUnreadMessage(currentMessages, project, login));
+      }
 
       function setOpen(open) {
         root.dataset.open = open ? "true" : "false";
         toggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
         if (open) {
+          markCurrentMessagesRead();
           window.setTimeout(() => {
             const activeInput = !inputEl.disabled ? inputEl : loginBtn;
             activeInput && activeInput.focus();
@@ -345,6 +444,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
         clearSession();
         loginBtn.hidden = false;
         logoutBtn.hidden = true;
+        setUnread(false);
         setComposerEnabled(false);
         setText(userEl, "로그인 필요");
         setText(statusEl, message || "GitHub 로그인이 필요합니다.");
@@ -428,18 +528,28 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
             "id,user_login,user_name,user_avatar_url,body,created_at",
           project: `eq.${project}`,
           deleted_at: "is.null",
-          order: "created_at.asc",
+          order: "created_at.desc",
           limit: String(MAX_MESSAGES),
         });
         const messages = await api(`/rest/v1/project_chat_messages?${query}`, {
           method: "GET",
         });
+        const loadedMessages = Array.isArray(messages)
+          ? [...messages].reverse()
+          : [];
         renderMessages(
           messagesEl,
-          Array.isArray(messages) ? messages : [],
+          loadedMessages,
           login,
           emptyMessage,
         );
+        currentMessages = loadedMessages;
+        currentLatestMessageAt = latestCreatedAt(currentMessages);
+        if (root.dataset.open === "true") {
+          markCurrentMessagesRead();
+        } else {
+          syncUnreadState();
+        }
       }
 
       async function boot() {
@@ -479,6 +589,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
             empty.className = "project-chat__empty";
             empty.textContent = "권한이 확인되면 대화 이력이 표시됩니다.";
             messagesEl.appendChild(empty);
+            setUnread(false);
             return;
           }
 
@@ -567,6 +678,20 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
       window.addEventListener("focus", () => {
         if (session && login) loadMessages().catch(() => {});
+      });
+
+      window.addEventListener("storage", (event) => {
+        if (event.key === READ_STATE_KEY) syncUnreadState();
+      });
+
+      window.addEventListener(CHAT_READ_EVENT, (event) => {
+        const detail = event.detail || {};
+        if (
+          detail.project === normalizeChatKey(project) &&
+          detail.login === String(login || "").toLowerCase()
+        ) {
+          syncUnreadState();
+        }
       });
 
       boot();
@@ -675,6 +800,42 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     color: var(--fg-3);
     font-family: var(--mono);
     font-size: 10px;
+  }
+
+  .project-chat__unread-dot {
+    display: none;
+    position: relative;
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    border-radius: 50%;
+    background: var(--risk-low);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--risk-low) 40%, transparent);
+  }
+
+  .project-chat[data-has-unread="true"] .project-chat__toggle {
+    border-color: color-mix(in oklch, var(--risk-low) 62%, var(--border));
+  }
+
+  .project-chat[data-has-unread="true"] .project-chat__unread-dot {
+    display: block;
+    animation: project-chat-unread-pulse 1.4s ease-out infinite;
+  }
+
+  @keyframes project-chat-unread-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--risk-low) 45%, transparent);
+      transform: scale(1);
+    }
+    70% {
+      box-shadow: 0 0 0 9px transparent;
+      transform: scale(1.08);
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+      transform: scale(1);
+    }
   }
 
   .project-chat[data-open="true"] .project-chat__toggle {

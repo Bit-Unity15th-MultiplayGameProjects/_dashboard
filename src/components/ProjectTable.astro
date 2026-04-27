@@ -41,6 +41,7 @@ const { rows } = Astro.props;
           href={row.href}
           data-risk={row.risk}
           data-row
+          data-chat-project={row.project}
           class="table-row"
           style={`display:grid;grid-template-columns:240px 60px 80px 1fr 140px 90px 24px;padding:12px 14px;gap:12px;align-items:center;border-bottom:${i < rows.length - 1 ? "1px solid var(--border)" : "none"};text-decoration:none;color:inherit;font-family:var(--sans);transition:background .12s;`}
         >
@@ -49,6 +50,10 @@ const { rows } = Astro.props;
           >
             <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-1);">
               {row.project}
+            </span>
+            <span class="table-row__chat-unread" data-chat-unread-badge hidden>
+              <span aria-hidden="true"></span>
+              새 메시지
             </span>
             <span style="font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
               {row.summary}
@@ -87,5 +92,50 @@ const { rows } = Astro.props;
 <style>
   .table-row:hover {
     background: var(--bg-2);
+  }
+
+  .table-row[data-chat-unread="true"] {
+    background: color-mix(in oklch, var(--risk-low) 6%, var(--bg-1));
+  }
+
+  .table-row__chat-unread {
+    display: inline-flex;
+    width: max-content;
+    align-items: center;
+    gap: 5px;
+    margin-top: 2px;
+    padding: 2px 6px;
+    border: 1px solid color-mix(in oklch, var(--risk-low) 48%, var(--border));
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--risk-low) 10%, var(--bg-1));
+    color: var(--risk-low);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .table-row__chat-unread[hidden] {
+    display: none !important;
+  }
+
+  .table-row__chat-unread span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--risk-low);
+    animation: table-row-chat-unread-pulse 1.4s ease-out infinite;
+  }
+
+  @keyframes table-row-chat-unread-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--risk-low) 42%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
   }
 </style>

@@ -1,0 +1,261 @@
+---
+interface Props {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+}
+
+const { supabaseUrl = "", supabaseAnonKey = "" } = Astro.props;
+---
+
+<div
+  data-chat-unread-markers
+  data-supabase-url={supabaseUrl}
+  data-supabase-anon-key={supabaseAnonKey}
+  hidden
+></div>
+
+<script is:inline>
+  (function () {
+    const root = document.querySelector("[data-chat-unread-markers]");
+    if (!root) return;
+
+    const SESSION_KEY = "bitunity_dashboard_chat_session_v1";
+    const READ_STATE_KEY = "bitunity_dashboard_chat_reads_v1";
+    const CHAT_READ_EVENT = "bitunity:chat-read-state";
+    const POLL_MS = 20000;
+    const supabaseUrl = (root.dataset.supabaseUrl || "").replace(/\/$/, "");
+    const anonKey = root.dataset.supabaseAnonKey || "";
+
+    function normalizeChatKey(project) {
+      return String(project || "").toLowerCase();
+    }
+
+    function projectElements() {
+      return Array.from(document.querySelectorAll("[data-chat-project]"));
+    }
+
+    function projectKeys() {
+      return Array.from(
+        new Set(
+          projectElements()
+            .map((el) => normalizeChatKey(el.dataset.chatProject))
+            .filter(Boolean),
+        ),
+      );
+    }
+
+    function setProjectUnread(project, hasUnread) {
+      for (const el of projectElements()) {
+        if (normalizeChatKey(el.dataset.chatProject) !== project) continue;
+        el.dataset.chatUnread = hasUnread ? "true" : "false";
+        const badge = el.querySelector("[data-chat-unread-badge]");
+        if (badge) badge.hidden = !hasUnread;
+      }
+    }
+
+    function clearAllUnread() {
+      for (const project of projectKeys()) setProjectUnread(project, false);
+    }
+
+    function readSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function writeSession(session) {
+      const expiresAt =
+        session.expires_at ||
+        Math.floor(Date.now() / 1000) + Number(session.expires_in || 3600);
+      localStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({ ...session, expires_at: expiresAt }),
+      );
+      return readSession();
+    }
+
+    function readChatReads() {
+      try {
+        const raw = localStorage.getItem(READ_STATE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function writeChatReads(reads) {
+      try {
+        localStorage.setItem(READ_STATE_KEY, JSON.stringify(reads));
+      } catch {
+        // Ignore storage failures; unread badges are only a client hint.
+      }
+    }
+
+    function getChatReadAt(reads, project, login) {
+      return (
+        (reads[String(login || "").toLowerCase()] || {})[
+          normalizeChatKey(project)
+        ] || ""
+      );
+    }
+
+    function setChatReadAt(reads, project, login, readAt) {
+      const userKey = String(login || "").toLowerCase();
+      const projectKey = normalizeChatKey(project);
+      if (!userKey || !projectKey || !readAt) return false;
+      const current = reads[userKey] || {};
+      if (current[projectKey]) return false;
+      reads[userKey] = { ...current, [projectKey]: readAt };
+      return true;
+    }
+
+    function githubLoginFromUser(user) {
+      const meta = user && user.user_metadata ? user.user_metadata : {};
+      return String(
+        meta.user_name ||
+          meta.preferred_username ||
+          meta.login ||
+          meta.nickname ||
+          "",
+      ).toLowerCase();
+    }
+
+    function buildHeaders(session, extra) {
+      return {
+        apikey: anonKey,
+        Authorization: `Bearer ${session.access_token}`,
+        ...extra,
+      };
+    }
+
+    async function refreshSession(current) {
+      if (!current || !current.refresh_token) return null;
+      const res = await fetch(
+        `${supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: "POST",
+          headers: {
+            apikey: anonKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ refresh_token: current.refresh_token }),
+        },
+      );
+      if (!res.ok) return null;
+      return writeSession(await res.json());
+    }
+
+    async function ensureSession() {
+      let session = readSession();
+      if (!session) return null;
+      const expiresAt = Number(session.expires_at || 0);
+      const now = Math.floor(Date.now() / 1000);
+      if (expiresAt && expiresAt - now < 60) {
+        session = await refreshSession(session);
+      }
+      return session;
+    }
+
+    async function api(session, path) {
+      const res = await fetch(`${supabaseUrl}${path}`, {
+        method: "GET",
+        headers: buildHeaders(session),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
+    async function loadUnreadMarkers() {
+      const projects = projectKeys();
+      if (!supabaseUrl || !anonKey || projects.length === 0) {
+        clearAllUnread();
+        return;
+      }
+
+      const session = await ensureSession();
+      if (!session) {
+        clearAllUnread();
+        return;
+      }
+
+      const user = await api(session, "/auth/v1/user");
+      const login = githubLoginFromUser(user);
+      if (!login) {
+        clearAllUnread();
+        return;
+      }
+
+      const query = new URLSearchParams({
+        select: "project,user_login,created_at",
+        project: `in.(${projects.join(",")})`,
+        deleted_at: "is.null",
+        order: "created_at.desc",
+        limit: String(Math.max(250, projects.length * 40)),
+      });
+      const rows =
+        (await api(session, `/rest/v1/project_chat_messages?${query}`)) || [];
+      const reads = readChatReads();
+      const latestByProject = new Map();
+      const unreadByProject = new Map(projects.map((project) => [project, false]));
+
+      for (const row of rows) {
+        const project = normalizeChatKey(row.project);
+        if (!unreadByProject.has(project)) continue;
+        if (!latestByProject.has(project)) latestByProject.set(project, row.created_at);
+
+        const readAt = getChatReadAt(reads, project, login);
+        if (
+          readAt &&
+          String(row.user_login || "").toLowerCase() !== login &&
+          new Date(row.created_at).getTime() > new Date(readAt).getTime()
+        ) {
+          unreadByProject.set(project, true);
+        }
+      }
+
+      let wroteBaseline = false;
+      for (const project of projects) {
+        if (!getChatReadAt(reads, project, login)) {
+          wroteBaseline =
+            setChatReadAt(
+              reads,
+              project,
+              login,
+              latestByProject.get(project) || new Date().toISOString(),
+            ) || wroteBaseline;
+        }
+        setProjectUnread(project, unreadByProject.get(project) === true);
+      }
+      if (wroteBaseline) writeChatReads(reads);
+    }
+
+    let pollTimer = null;
+    function schedule() {
+      if (pollTimer) window.clearInterval(pollTimer);
+      pollTimer = window.setInterval(() => {
+        loadUnreadMarkers().catch(clearAllUnread);
+      }, POLL_MS);
+    }
+
+    loadUnreadMarkers().catch(clearAllUnread);
+    schedule();
+
+    window.addEventListener("focus", () => {
+      loadUnreadMarkers().catch(clearAllUnread);
+    });
+
+    window.addEventListener("storage", (event) => {
+      if (event.key === READ_STATE_KEY || event.key === SESSION_KEY) {
+        loadUnreadMarkers().catch(clearAllUnread);
+      }
+    });
+
+    window.addEventListener(CHAT_READ_EVENT, () => {
+      loadUnreadMarkers().catch(clearAllUnread);
+    });
+  })();
+</script>

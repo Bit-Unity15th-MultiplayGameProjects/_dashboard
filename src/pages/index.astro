@@ -9,6 +9,7 @@ import ProjectTable from "../components/ProjectTable.astro";
 import FilterTabs from "../components/FilterTabs.astro";
 import ViewToggle from "../components/ViewToggle.astro";
 import ProjectChat from "../components/ProjectChat.astro";
+import ChatUnreadMarkers from "../components/ChatUnreadMarkers.astro";
 import {
   getAllReports,
   getProjectSummaries,
@@ -220,6 +221,11 @@ const cards = projects.map((p) => ({
     memberStatus="organization member 권한으로 연결되었습니다."
     contributorStatus="organization member 권한으로 연결되었습니다."
     ariaLabel="조직 채팅"
+  />
+
+  <ChatUnreadMarkers
+    supabaseUrl={chatSupabaseUrl}
+    supabaseAnonKey={chatSupabaseAnonKey}
   />
 </Layout>
 

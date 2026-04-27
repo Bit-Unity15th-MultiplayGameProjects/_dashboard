@@ -51,6 +51,7 @@ const deltaLabel =
   href={href}
   data-risk={risk}
   data-card
+  data-chat-project={project}
   class="project-card"
   style="display:flex;flex-direction:column;gap:12px;text-decoration:none;color:inherit;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);padding:16px 18px 14px;font-family:var(--sans);transition:border-color .12s, box-shadow .12s;"
 >
@@ -65,6 +66,10 @@ const deltaLabel =
           {project}
         </span>
         <RiskBadge level={risk} />
+        <span class="project-card__chat-unread" data-chat-unread-badge hidden>
+          <span aria-hidden="true"></span>
+          새 메시지
+        </span>
       </div>
       <p
         style="margin:0;font-size:12.5px;color:var(--fg-2);line-height:1.55;"
@@ -134,5 +139,52 @@ const deltaLabel =
     box-shadow:
       0 4px 12px rgba(0, 0, 0, 0.06),
       0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  .project-card[data-chat-unread="true"] {
+    border-color: color-mix(in oklch, var(--risk-low) 58%, var(--border)) !important;
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--risk-low) 24%, transparent),
+      0 6px 18px rgba(0, 0, 0, 0.08);
+  }
+
+  .project-card__chat-unread {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 6px;
+    border: 1px solid color-mix(in oklch, var(--risk-low) 48%, var(--border));
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--risk-low) 11%, var(--bg-1));
+    color: var(--risk-low);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .project-card__chat-unread[hidden] {
+    display: none !important;
+  }
+
+  .project-card__chat-unread span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--risk-low);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--risk-low) 44%, transparent);
+    animation: project-card-chat-unread-pulse 1.4s ease-out infinite;
+  }
+
+  @keyframes project-card-chat-unread-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--risk-low) 42%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
   }
 </style>
