@@ -1,11 +1,15 @@
 {
-  "last_sha": "d4b001c3e34ebdc468fee67e37562d9e2c6822f3",
-  "last_report_at": "2026-04-27T01:25:04+00:00",
-  "last_report_file": "reports/HANPAN/2026-04-27T01-22-59Z.md",
-  "report_count": 8,
-  "last_commit_at": "2026-04-27T10:17:19+09:00",
+  "last_sha": "c9ca42569d0cc51587a1b339ba5be733bddc2b99",
+  "last_report_at": "2026-04-27T07:43:04+00:00",
+  "last_report_file": "reports/HANPAN/2026-04-27T07-41-27Z.md",
+  "report_count": 9,
+  "last_commit_at": "2026-04-27T16:31:40+09:00",
   "contributors": [
     "Juhyun Son",
     "SonJuhyun"
-  ]
+  ],
+  "repo_full_name": "Bit-Unity15th-MultiplayGameProjects/HANPAN",
+  "repo_id": 1216559954,
+  "repo_name": "HANPAN",
+  "repo_node_id": "R_kgDOSIM7Ug"
 }
