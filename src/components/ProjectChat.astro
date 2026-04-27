@@ -76,24 +76,20 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     <div class="project-chat__header">
       <div>
         <p class="project-chat__eyebrow">{eyebrow}</p>
-        <h2>{title}</h2>
+        <div class="project-chat__title-row">
+          <h2>{title}</h2>
+          <span class="project-chat__status" data-chat-status>
+            {
+              configured
+                ? "GitHub 로그인 상태를 확인하는 중입니다."
+                : "채팅 DB 설정이 아직 연결되지 않았습니다."
+            }
+          </span>
+        </div>
       </div>
       <button type="button" class="project-chat__close" data-chat-close aria-label="채팅 닫기">
         ×
       </button>
-    </div>
-
-    <div class="project-chat__status" data-chat-status>
-      {
-        configured
-          ? "GitHub 로그인 상태를 확인하는 중입니다."
-          : "채팅 DB 설정이 아직 연결되지 않았습니다."
-      }
-    </div>
-
-    <div class="project-chat__auth">
-      <button type="button" data-chat-login>GitHub 로그인</button>
-      <button type="button" data-chat-logout hidden>로그아웃</button>
     </div>
 
     <div class="project-chat__messages" data-chat-messages role="log" aria-live="polite">
@@ -111,6 +107,10 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
         placeholder={placeholder}
         disabled></textarea>
       <div class="project-chat__form-row">
+        <div class="project-chat__account-row">
+          <button type="button" data-chat-login>GitHub 로그인</button>
+          <button type="button" data-chat-logout hidden>로그아웃</button>
+        </div>
         <span data-chat-user class="project-chat__user">로그인 필요</span>
         <button type="submit" data-chat-send disabled>전송</button>
       </div>
@@ -572,7 +572,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     right: 24px;
     bottom: 24px;
     z-index: 70;
-    width: min(380px, calc(100vw - 32px));
+    width: min(570px, calc(100vw - 32px));
     pointer-events: none;
   }
 
@@ -679,7 +679,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
   .project-chat__panel {
     display: flex;
-    height: min(620px, calc(100vh - 112px));
+    height: calc(100vh - 48px);
+    max-height: 860px;
     flex-direction: column;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -698,6 +699,13 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     padding: 15px 15px 13px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-2);
+  }
+
+  .project-chat__title-row {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    flex-wrap: wrap;
   }
 
   .project-chat__close {
@@ -744,20 +752,15 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   }
 
   .project-chat__status {
-    margin: 12px 12px 0;
-    padding: 9px 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 4px;
-    background: var(--bg);
+    max-width: 360px;
+    overflow: hidden;
     color: var(--fg-2);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .project-chat__auth {
-    display: flex;
-    gap: 8px;
-    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .project-chat button:not(.project-chat__toggle):not(.project-chat__close) {
@@ -781,16 +784,11 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     opacity: 0.55;
   }
 
-  .project-chat__auth button {
-    min-height: 32px;
-    padding: 0 10px;
-  }
-
   .project-chat__messages {
     flex: 1;
     min-height: 220px;
     overflow-y: auto;
-    padding: 2px 12px 14px;
+    padding: 12px 16px 16px;
   }
 
   .project-chat__empty {
@@ -863,7 +861,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
   .project-chat__stack {
     display: flex;
-    width: min(270px, calc(100% - 82px));
+    width: min(390px, calc(100% - 82px));
     min-width: 120px;
     flex-direction: column;
     align-items: flex-start;
@@ -936,13 +934,24 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
   .project-chat__form-row {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
     justify-content: space-between;
     margin-top: 8px;
   }
 
+  .project-chat__account-row {
+    display: flex;
+    flex: 0 0 auto;
+  }
+
+  .project-chat__account-row button {
+    min-height: 32px;
+    padding: 0 10px;
+  }
+
   .project-chat__user {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     color: var(--fg-3);
@@ -973,7 +982,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     }
 
     .project-chat__panel {
-      height: min(600px, calc(100vh - 88px));
+      height: calc(100vh - 48px);
     }
   }
 </style>
