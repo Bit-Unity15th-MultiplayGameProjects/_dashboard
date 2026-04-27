@@ -176,8 +176,10 @@ Supabase 를 채택한 이유:
   Supabase `auth.uid()` 와 서버가 만든 `project_chat_profiles`,
   `project_chat_members` 테이블을 기준으로 판정한다.
 - organization member / contributor 목록은 `_dashboard` 의 `sync-chat-members`
-  workflow 가 GitHub API 로 읽어 Supabase 에 동기화한다. 프로젝트 repo 에
-  workflow 나 파일을 추가하지 않는다.
+  workflow 가 GitHub API 로 읽어 Supabase 에 동기화한다. 프로젝트 채팅은
+  커밋 contributor 와 repo write collaborator 를 함께 반영해, 아직 커밋 기록이
+  GitHub contributor 로 잡히지 않은 팀원도 자기 프로젝트 채팅에 들어올 수 있게 한다.
+  프로젝트 repo 에 workflow 나 파일을 추가하지 않는다.
 
 운영자가 준비할 것:
 
@@ -198,7 +200,10 @@ Supabase 를 채택한 이유:
 
    조직 채팅이 organization member 전체를 정확히 동기화하려면
    `ORG_REPO_PAT_BIT_UNITY_15TH` 토큰에 org **Members: Read-only** 권한도 필요하다.
-   이 권한이 없으면 GitHub API 가 public member 만 반환할 수 있다.
+   프로젝트 채팅의 repo collaborator 동기화에는 repo **Metadata: Read-only** 권한이
+   쓰인다. 토큰을 발급한 계정은 대상 repo collaborator 목록을 볼 수 있는 권한
+   (예: org owner 또는 해당 repo write/maintain/admin 권한)이 있어야 한다. 이 조건이
+   맞지 않으면 GitHub API 가 일부 member/collaborator 만 반환할 수 있다.
 
 4. **Actions → sync-chat-members → Run workflow** 를 한 번 실행한다. 이후에는
    `generate-reports` 완료 직후와 1시간 주기 cron 으로 member/contributor 권한이 갱신된다.

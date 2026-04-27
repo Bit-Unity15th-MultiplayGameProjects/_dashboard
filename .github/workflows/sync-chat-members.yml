@@ -1,6 +1,11 @@
 name: sync-chat-members
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/sync-chat-members.sh"
+      - ".github/workflows/sync-chat-members.yml"
   workflow_dispatch:
     inputs:
       target_repo:

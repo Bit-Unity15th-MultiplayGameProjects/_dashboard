@@ -12,6 +12,12 @@
 # Optional env:
 #   TARGET_REPOS_JSON       JSON array of repo names. If omitted, list-target-repos.sh is used.
 #   ORG_CHAT_PROJECT_KEY    Supabase channel key for organization-wide chat.
+#
+# Project chat access intentionally combines:
+#   - repository contributors reported by GitHub commit history
+#   - repository collaborators with write/maintain/admin-equivalent access
+# The contributors endpoint can miss students who have repo access but no
+# matched commits yet, so collaborators are the safer authority for "my project".
 
 set -euo pipefail
 
@@ -52,6 +58,26 @@ repo_count="$(jq 'length' <<<"$repos_json")"
 echo "[info] syncing chat members for $repo_count repo(s)" >&2
 echo "[info] owner login count: $owner_count" >&2
 
+api_logins_or_empty() {
+  local label="$1"
+  local path="$2"
+  local jq_filter="$3"
+  local output
+
+  if output="$(
+    gh api "$path" --paginate --jq "$jq_filter" 2> >(sed "s/^/[warn] $label: /" >&2)
+  )"; then
+    jq -R -s -c '
+      split("\n")
+      | map(ascii_downcase | select(length > 0))
+      | unique
+    ' <<<"$output"
+  else
+    echo "::warning::Could not fetch $label. Continuing with an empty list." >&2
+    echo "[]"
+  fi
+}
+
 post_members() {
   local project_key="$1"
   local members_json="$2"
@@ -79,12 +105,10 @@ post_members() {
 }
 
 org_members_json="$(
-  gh api "orgs/${ORG}/members" --paginate --jq '.[].login' \
-    | jq -R -s -c '
-        split("\n")
-        | map(ascii_downcase | select(length > 0))
-        | unique
-      '
+  api_logins_or_empty \
+    "organization members" \
+    "orgs/${ORG}/members" \
+    '.[].login'
 )"
 
 org_member_count="$(jq 'length' <<<"$org_members_json")"
@@ -122,21 +146,28 @@ while IFS= read -r repo; do
   echo "[info] repo: $repo" >&2
 
   contributors_json="$(
-    gh api "repos/${ORG}/${repo}/contributors" --paginate --jq '.[].login' \
-      | jq -R -s -c '
-          split("\n")
-          | map(ascii_downcase | select(length > 0))
-          | unique
-        '
+    api_logins_or_empty \
+      "$repo contributors" \
+      "repos/${ORG}/${repo}/contributors?per_page=100" \
+      '.[].login'
+  )"
+
+  collaborators_json="$(
+    api_logins_or_empty \
+      "$repo collaborators" \
+      "repos/${ORG}/${repo}/collaborators?affiliation=all&per_page=100" \
+      '.[] | select((.permissions.push // false) or (.permissions.maintain // false) or (.permissions.admin // false)) | .login'
   )"
 
   members_json="$(
     jq -cn \
       --argjson owners "$owners_json" \
-      --argjson contributors "$contributors_json" '
+      --argjson contributors "$contributors_json" \
+      --argjson collaborators "$collaborators_json" '
         [
           ($owners[]? | {login: ., role: "owner"}),
-          ($contributors[]? | {login: ., role: "contributor"})
+          ($contributors[]? | {login: ., role: "contributor"}),
+          ($collaborators[]? | {login: ., role: "contributor"})
         ]
         | group_by(.login)
         | map(
@@ -150,8 +181,9 @@ while IFS= read -r repo; do
   )"
 
   contributor_count="$(jq 'length' <<<"$contributors_json")"
+  collaborator_count="$(jq 'length' <<<"$collaborators_json")"
   post_members \
     "$project_key" \
     "$members_json" \
-    "$contributor_count contributor(s), $owner_count owner(s)"
+    "$contributor_count contributor(s), $collaborator_count write collaborator(s), $owner_count owner(s)"
 done < <(jq -r '.[]' <<<"$repos_json")

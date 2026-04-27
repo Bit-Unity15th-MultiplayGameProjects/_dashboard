@@ -22,7 +22,8 @@ const { supabaseUrl = "", supabaseAnonKey = "" } = Astro.props;
     const SESSION_KEY = "bitunity_dashboard_chat_session_v1";
     const READ_STATE_KEY = "bitunity_dashboard_chat_reads_v1";
     const CHAT_READ_EVENT = "bitunity:chat-read-state";
-    const POLL_MS = 20000;
+    const ACTIVE_POLL_MS = 6000;
+    const HIDDEN_POLL_MS = 30000;
     const supabaseUrl = (root.dataset.supabaseUrl || "").replace(/\/$/, "");
     const anonKey = root.dataset.supabaseAnonKey || "";
 
@@ -170,6 +171,12 @@ const { supabaseUrl = "", supabaseAnonKey = "" } = Astro.props;
     }
 
     async function loadUnreadMarkers() {
+      if (loadingMarkers) {
+        queuedMarkers = true;
+        return;
+      }
+      loadingMarkers = true;
+      try {
       const projects = projectKeys();
       if (!supabaseUrl || !anonKey || projects.length === 0) {
         clearAllUnread();
@@ -231,21 +238,38 @@ const { supabaseUrl = "", supabaseAnonKey = "" } = Astro.props;
         setProjectUnread(project, unreadByProject.get(project) === true);
       }
       if (wroteBaseline) writeChatReads(reads);
+      } finally {
+        loadingMarkers = false;
+        if (queuedMarkers) {
+          queuedMarkers = false;
+          window.setTimeout(() => loadUnreadMarkers().catch(clearAllUnread), 0);
+        }
+      }
     }
 
     let pollTimer = null;
+    let loadingMarkers = false;
+    let queuedMarkers = false;
     function schedule() {
       if (pollTimer) window.clearInterval(pollTimer);
       pollTimer = window.setInterval(() => {
         loadUnreadMarkers().catch(clearAllUnread);
-      }, POLL_MS);
+      }, document.hidden ? HIDDEN_POLL_MS : ACTIVE_POLL_MS);
     }
 
     loadUnreadMarkers().catch(clearAllUnread);
     schedule();
 
     window.addEventListener("focus", () => {
+      schedule();
       loadUnreadMarkers().catch(clearAllUnread);
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      schedule();
+      if (!document.hidden) {
+        loadUnreadMarkers().catch(clearAllUnread);
+      }
     });
 
     window.addEventListener("storage", (event) => {

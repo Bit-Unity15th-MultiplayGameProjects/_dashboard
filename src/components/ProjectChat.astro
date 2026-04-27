@@ -129,6 +129,9 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     const READ_STATE_KEY = "bitunity_dashboard_chat_reads_v1";
     const CHAT_READ_EVENT = "bitunity:chat-read-state";
     const MAX_MESSAGES = 120;
+    const OPEN_POLL_MS = 3000;
+    const CLOSED_POLL_MS = 10000;
+    const HIDDEN_POLL_MS = 30000;
 
     function setText(el, text) {
       if (el) el.textContent = text;
@@ -393,6 +396,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       let pollTimer = null;
       let currentMessages = [];
       let currentLatestMessageAt = "";
+      let loadingMessages = false;
+      let queuedLoadMessages = false;
 
       function setUnread(hasUnread) {
         root.dataset.hasUnread = hasUnread ? "true" : "false";
@@ -425,11 +430,27 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
         toggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
         if (open) {
           markCurrentMessagesRead();
+          if (session && login) loadMessages().catch(() => {});
           window.setTimeout(() => {
             const activeInput = !inputEl.disabled ? inputEl : loginBtn;
             activeInput && activeInput.focus();
           }, 0);
         }
+        schedulePolling();
+      }
+
+      function pollingDelay() {
+        if (document.hidden) return HIDDEN_POLL_MS;
+        return root.dataset.open === "true" ? OPEN_POLL_MS : CLOSED_POLL_MS;
+      }
+
+      function schedulePolling() {
+        if (pollTimer) window.clearInterval(pollTimer);
+        pollTimer = null;
+        if (!session || !login) return;
+        pollTimer = window.setInterval(() => {
+          loadMessages().catch(() => {});
+        }, pollingDelay());
       }
 
       function setComposerEnabled(enabled) {
@@ -441,6 +462,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
         session = null;
         user = null;
         login = "";
+        if (pollTimer) window.clearInterval(pollTimer);
+        pollTimer = null;
         clearSession();
         loginBtn.hidden = false;
         logoutBtn.hidden = true;
@@ -523,32 +546,45 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       }
 
       async function loadMessages() {
-        const query = new URLSearchParams({
-          select:
-            "id,user_login,user_name,user_avatar_url,body,created_at",
-          project: `eq.${project}`,
-          deleted_at: "is.null",
-          order: "created_at.desc",
-          limit: String(MAX_MESSAGES),
-        });
-        const messages = await api(`/rest/v1/project_chat_messages?${query}`, {
-          method: "GET",
-        });
-        const loadedMessages = Array.isArray(messages)
-          ? [...messages].reverse()
-          : [];
-        renderMessages(
-          messagesEl,
-          loadedMessages,
-          login,
-          emptyMessage,
-        );
-        currentMessages = loadedMessages;
-        currentLatestMessageAt = latestCreatedAt(currentMessages);
-        if (root.dataset.open === "true") {
-          markCurrentMessagesRead();
-        } else {
-          syncUnreadState();
+        if (loadingMessages) {
+          queuedLoadMessages = true;
+          return;
+        }
+        loadingMessages = true;
+        try {
+          const query = new URLSearchParams({
+            select:
+              "id,user_login,user_name,user_avatar_url,body,created_at",
+            project: `eq.${project}`,
+            deleted_at: "is.null",
+            order: "created_at.desc",
+            limit: String(MAX_MESSAGES),
+          });
+          const messages = await api(`/rest/v1/project_chat_messages?${query}`, {
+            method: "GET",
+          });
+          const loadedMessages = Array.isArray(messages)
+            ? [...messages].reverse()
+            : [];
+          renderMessages(
+            messagesEl,
+            loadedMessages,
+            login,
+            emptyMessage,
+          );
+          currentMessages = loadedMessages;
+          currentLatestMessageAt = latestCreatedAt(currentMessages);
+          if (root.dataset.open === "true") {
+            markCurrentMessagesRead();
+          } else {
+            syncUnreadState();
+          }
+        } finally {
+          loadingMessages = false;
+          if (queuedLoadMessages) {
+            queuedLoadMessages = false;
+            window.setTimeout(() => loadMessages().catch(() => {}), 0);
+          }
         }
       }
 
@@ -605,11 +641,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
           );
           setComposerEnabled(true);
           await loadMessages();
-
-          if (pollTimer) window.clearInterval(pollTimer);
-          pollTimer = window.setInterval(() => {
-            loadMessages().catch(() => {});
-          }, 20000);
+          schedulePolling();
         } catch (err) {
           setLoggedOut(err && err.message ? err.message : "채팅 연결에 실패했습니다.");
         }
@@ -636,6 +668,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
       logoutBtn.addEventListener("click", () => {
         if (pollTimer) window.clearInterval(pollTimer);
+        pollTimer = null;
         setLoggedOut("로그아웃되었습니다.");
       });
 
@@ -677,7 +710,17 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       });
 
       window.addEventListener("focus", () => {
-        if (session && login) loadMessages().catch(() => {});
+        if (session && login) {
+          schedulePolling();
+          loadMessages().catch(() => {});
+        }
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        schedulePolling();
+        if (!document.hidden && session && login) {
+          loadMessages().catch(() => {});
+        }
       });
 
       window.addEventListener("storage", (event) => {
