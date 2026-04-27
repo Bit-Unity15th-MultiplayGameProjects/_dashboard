@@ -853,6 +853,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   }
 
   .project-chat__bubble {
+    width: max-content;
     max-width: min(270px, calc(100% - 36px));
     min-width: 0;
     padding: 8px 9px;
@@ -904,8 +905,9 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
     color: var(--fg-1);
     font-size: 12.5px;
     line-height: 1.55;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     white-space: pre-wrap;
+    word-break: keep-all;
   }
 
   .project-chat__form {
