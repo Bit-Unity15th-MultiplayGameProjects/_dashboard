@@ -278,6 +278,8 @@ begin
     raise exception 'p_project is required';
   end if;
 
+  p_project := lower(trim(p_project));
+
   delete from public.project_chat_members
   where project = p_project;
 

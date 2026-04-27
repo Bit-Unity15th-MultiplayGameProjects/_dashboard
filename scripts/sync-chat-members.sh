@@ -52,6 +52,7 @@ echo "[info] owner login count: $owner_count" >&2
 
 while IFS= read -r repo; do
   [[ -n "$repo" ]] || continue
+  project_key="$(jq -nr --arg r "$repo" '$r | ascii_downcase')"
   echo "[info] repo: $repo" >&2
 
   contributors_json="$(
@@ -84,7 +85,7 @@ while IFS= read -r repo; do
 
   payload="$(
     jq -cn \
-      --arg project "$repo" \
+      --arg project "$project_key" \
       --argjson members "$members_json" \
       '{p_project: $project, p_members: $members}'
   )"
@@ -99,5 +100,5 @@ while IFS= read -r repo; do
 
   member_count="$(jq 'length' <<<"$members_json")"
   contributor_count="$(jq 'length' <<<"$contributors_json")"
-  echo "[info] synced $member_count member(s): $contributor_count contributor(s), $owner_count owner(s)" >&2
+  echo "[info] synced $member_count member(s) for $project_key: $contributor_count contributor(s), $owner_count owner(s)" >&2
 done < <(jq -r '.[]' <<<"$repos_json")
