@@ -1,0 +1,54 @@
+name: sync-chat-members
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "특정 repo 하나만 동기화 (빈칸이면 전체)"
+        required: false
+        type: string
+  schedule:
+    # Contributor 권한은 리뷰 호출과 독립적으로 가볍게 갱신한다.
+    - cron: "17 * * * *"
+  workflow_run:
+    workflows: ["generate-reports"]
+    types:
+      - completed
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-chat-members
+  cancel-in-progress: false
+
+env:
+  ORG: Bit-Unity15th-MultiplayGameProjects
+
+jobs:
+  sync:
+    name: Sync chat members
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion != 'cancelled'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync members
+        env:
+          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          SUPABASE_URL: ${{ vars.CHAT_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.CHAT_SUPABASE_SERVICE_ROLE_KEY }}
+          CHAT_OWNER_LOGINS: ${{ vars.CHAT_OWNER_LOGINS }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${TARGET_REPO:-}" ]]; then
+            export TARGET_REPOS_JSON="$(jq -cn --arg r "$TARGET_REPO" '[$r]')"
+          fi
+
+          bash scripts/sync-chat-members.sh

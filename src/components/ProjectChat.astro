@@ -1,0 +1,695 @@
+---
+interface Props {
+  project: string;
+  org: string;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+}
+
+const { project, org, supabaseUrl = "", supabaseAnonKey = "" } = Astro.props;
+const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
+---
+
+<aside
+  class="project-chat"
+  data-project-chat
+  data-project={project}
+  data-org={org}
+  data-supabase-url={supabaseUrl}
+  data-supabase-anon-key={supabaseAnonKey}
+  aria-label="프로젝트 강사 채팅"
+>
+  <div class="project-chat__header">
+    <div>
+      <p class="project-chat__eyebrow">Instructor channel</p>
+      <h2>강사 채팅</h2>
+    </div>
+    <span class="project-chat__project">{project}</span>
+  </div>
+
+  <div class="project-chat__status" data-chat-status>
+    {
+      configured
+        ? "GitHub 로그인 상태를 확인하는 중입니다."
+        : "채팅 DB 설정이 아직 연결되지 않았습니다."
+    }
+  </div>
+
+  <div class="project-chat__auth">
+    <button type="button" data-chat-login>GitHub 로그인</button>
+    <button type="button" data-chat-logout hidden>로그아웃</button>
+  </div>
+
+  <div class="project-chat__messages" data-chat-messages role="log" aria-live="polite">
+    <p class="project-chat__empty">
+      프로젝트 contributor와 대시보드 소유자만 대화를 볼 수 있습니다.
+    </p>
+  </div>
+
+  <form class="project-chat__form" data-chat-form>
+    <textarea
+      data-chat-input
+      name="message"
+      rows="3"
+      maxlength="1200"
+      placeholder="강사에게 남길 메시지"
+      disabled></textarea>
+    <div class="project-chat__form-row">
+      <span data-chat-user class="project-chat__user">로그인 필요</span>
+      <button type="submit" data-chat-send disabled>전송</button>
+    </div>
+  </form>
+</aside>
+
+<script is:inline>
+  (function () {
+    const roots = document.querySelectorAll("[data-project-chat]");
+    if (roots.length === 0) return;
+
+    const SESSION_KEY = "bitunity_dashboard_chat_session_v1";
+    const MAX_MESSAGES = 120;
+
+    function setText(el, text) {
+      if (el) el.textContent = text;
+    }
+
+    function readSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function writeSession(session) {
+      const expiresAt =
+        session.expires_at ||
+        Math.floor(Date.now() / 1000) + Number(session.expires_in || 3600);
+      localStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({ ...session, expires_at: expiresAt }),
+      );
+      return readSession();
+    }
+
+    function clearSession() {
+      localStorage.removeItem(SESSION_KEY);
+    }
+
+    function cleanAuthHash() {
+      const hash = window.location.hash ? window.location.hash.slice(1) : "";
+      if (!hash) return null;
+
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const error = params.get("error_description") || params.get("error");
+
+      if (accessToken && refreshToken) {
+        const session = writeSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          expires_in: Number(params.get("expires_in") || 3600),
+          token_type: params.get("token_type") || "bearer",
+        });
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname + window.location.search,
+        );
+        return { session };
+      }
+
+      if (error) {
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname + window.location.search,
+        );
+        return { error };
+      }
+
+      return null;
+    }
+
+    function githubLoginFromUser(user) {
+      const meta = user && user.user_metadata ? user.user_metadata : {};
+      return String(
+        meta.user_name ||
+          meta.preferred_username ||
+          meta.login ||
+          meta.nickname ||
+          "",
+      ).toLowerCase();
+    }
+
+    function buildHeaders(anonKey, session, extra) {
+      return {
+        apikey: anonKey,
+        Authorization: `Bearer ${session.access_token}`,
+        ...extra,
+      };
+    }
+
+    function formatTime(iso) {
+      try {
+        return new Intl.DateTimeFormat("ko-KR", {
+          timeZone: "Asia/Seoul",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(iso));
+      } catch {
+        return "";
+      }
+    }
+
+    function createInitial(login) {
+      return (login || "?").slice(0, 1).toUpperCase();
+    }
+
+    function renderMessages(listEl, messages, ownLogin) {
+      listEl.replaceChildren();
+      if (messages.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "project-chat__empty";
+        empty.textContent = "아직 남겨진 대화가 없습니다.";
+        listEl.appendChild(empty);
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      for (const message of messages) {
+        const item = document.createElement("article");
+        item.className = "project-chat__message";
+        if (message.user_login === ownLogin) item.classList.add("is-own");
+
+        const avatar = document.createElement("div");
+        avatar.className = "project-chat__avatar";
+        if (message.user_avatar_url) {
+          const img = document.createElement("img");
+          img.src = message.user_avatar_url;
+          img.alt = "";
+          img.loading = "lazy";
+          avatar.appendChild(img);
+        } else {
+          avatar.textContent = createInitial(message.user_login);
+        }
+
+        const body = document.createElement("div");
+        body.className = "project-chat__bubble";
+
+        const meta = document.createElement("div");
+        meta.className = "project-chat__meta";
+        const name = document.createElement("span");
+        name.textContent = message.user_name || message.user_login;
+        const time = document.createElement("time");
+        time.dateTime = message.created_at;
+        time.textContent = formatTime(message.created_at);
+        meta.append(name, time);
+
+        const text = document.createElement("p");
+        text.textContent = message.body;
+
+        body.append(meta, text);
+        item.append(avatar, body);
+        fragment.appendChild(item);
+      }
+      listEl.appendChild(fragment);
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+
+    roots.forEach((root) => {
+      const project = root.dataset.project || "";
+      const org = root.dataset.org || "";
+      const supabaseUrl = (root.dataset.supabaseUrl || "").replace(/\/$/, "");
+      const anonKey = root.dataset.supabaseAnonKey || "";
+
+      const statusEl = root.querySelector("[data-chat-status]");
+      const loginBtn = root.querySelector("[data-chat-login]");
+      const logoutBtn = root.querySelector("[data-chat-logout]");
+      const messagesEl = root.querySelector("[data-chat-messages]");
+      const formEl = root.querySelector("[data-chat-form]");
+      const inputEl = root.querySelector("[data-chat-input]");
+      const sendBtn = root.querySelector("[data-chat-send]");
+      const userEl = root.querySelector("[data-chat-user]");
+
+      let session = null;
+      let user = null;
+      let login = "";
+      let pollTimer = null;
+
+      function setComposerEnabled(enabled) {
+        inputEl.disabled = !enabled;
+        sendBtn.disabled = !enabled;
+      }
+
+      function setLoggedOut(message) {
+        session = null;
+        user = null;
+        login = "";
+        clearSession();
+        loginBtn.hidden = false;
+        logoutBtn.hidden = true;
+        setComposerEnabled(false);
+        setText(userEl, "로그인 필요");
+        setText(statusEl, message || "GitHub 로그인이 필요합니다.");
+      }
+
+      async function refreshSession(current) {
+        if (!current || !current.refresh_token) return null;
+        const res = await fetch(
+          `${supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+          {
+            method: "POST",
+            headers: {
+              apikey: anonKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ refresh_token: current.refresh_token }),
+          },
+        );
+        if (!res.ok) return null;
+        return writeSession(await res.json());
+      }
+
+      async function ensureSession() {
+        const hashResult = cleanAuthHash();
+        if (hashResult && hashResult.error) {
+          setText(statusEl, `로그인 실패: ${hashResult.error}`);
+        }
+
+        let current = hashResult && hashResult.session ? hashResult.session : readSession();
+        if (!current) return null;
+
+        const expiresAt = Number(current.expires_at || 0);
+        const now = Math.floor(Date.now() / 1000);
+        if (expiresAt && expiresAt - now < 60) {
+          current = await refreshSession(current);
+        }
+        return current;
+      }
+
+      async function api(path, options) {
+        const res = await fetch(`${supabaseUrl}${path}`, {
+          ...options,
+          headers: buildHeaders(anonKey, session, options && options.headers),
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const payload = await res.json();
+            detail = payload.message || payload.error_description || payload.error || "";
+          } catch {
+            detail = await res.text();
+          }
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        if (res.status === 204) return null;
+        const text = await res.text();
+        return text ? JSON.parse(text) : null;
+      }
+
+      async function loadUser() {
+        user = await api("/auth/v1/user", { method: "GET" });
+        login = githubLoginFromUser(user);
+        if (!login) throw new Error("GitHub login 정보를 읽을 수 없습니다.");
+      }
+
+      async function checkMembership() {
+        const query = new URLSearchParams({
+          select: "project,login,role",
+          project: `eq.${project}`,
+          limit: "1",
+        });
+        const rows = await api(`/rest/v1/project_chat_members?${query}`, {
+          method: "GET",
+        });
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      }
+
+      async function loadMessages() {
+        const query = new URLSearchParams({
+          select:
+            "id,user_login,user_name,user_avatar_url,body,created_at",
+          project: `eq.${project}`,
+          deleted_at: "is.null",
+          order: "created_at.asc",
+          limit: String(MAX_MESSAGES),
+        });
+        const messages = await api(`/rest/v1/project_chat_messages?${query}`, {
+          method: "GET",
+        });
+        renderMessages(messagesEl, Array.isArray(messages) ? messages : [], login);
+      }
+
+      async function boot() {
+        if (!supabaseUrl || !anonKey) {
+          loginBtn.disabled = true;
+          setComposerEnabled(false);
+          setText(
+            statusEl,
+            "Supabase URL과 anon key가 배포 환경변수에 필요합니다.",
+          );
+          return;
+        }
+
+        try {
+          session = await ensureSession();
+          if (!session) {
+            setLoggedOut("GitHub 로그인 후 프로젝트 채팅을 사용할 수 있습니다.");
+            return;
+          }
+
+          await loadUser();
+          const member = await checkMembership();
+          loginBtn.hidden = true;
+          logoutBtn.hidden = false;
+
+          if (!member) {
+            setComposerEnabled(false);
+            setText(userEl, login ? `@${login}` : "권한 없음");
+            setText(
+              statusEl,
+              `${org}/${project} contributor 또는 대시보드 소유자만 참여할 수 있습니다.`,
+            );
+            messagesEl.replaceChildren();
+            const empty = document.createElement("p");
+            empty.className = "project-chat__empty";
+            empty.textContent = "권한이 확인되면 대화 이력이 표시됩니다.";
+            messagesEl.appendChild(empty);
+            return;
+          }
+
+          login = member.login || login;
+          setText(userEl, `@${login}`);
+          setText(
+            statusEl,
+            member.role === "owner"
+              ? "대시보드 소유자 권한으로 연결되었습니다."
+              : "프로젝트 contributor 권한으로 연결되었습니다.",
+          );
+          setComposerEnabled(true);
+          await loadMessages();
+
+          if (pollTimer) window.clearInterval(pollTimer);
+          pollTimer = window.setInterval(() => {
+            loadMessages().catch(() => {});
+          }, 20000);
+        } catch (err) {
+          setLoggedOut(err && err.message ? err.message : "채팅 연결에 실패했습니다.");
+        }
+      }
+
+      loginBtn.addEventListener("click", () => {
+        if (!supabaseUrl) return;
+        const target = new URL(`${supabaseUrl}/auth/v1/authorize`);
+        target.searchParams.set("provider", "github");
+        target.searchParams.set(
+          "redirect_to",
+          window.location.href.split("#")[0],
+        );
+        window.location.assign(target.toString());
+      });
+
+      logoutBtn.addEventListener("click", () => {
+        if (pollTimer) window.clearInterval(pollTimer);
+        setLoggedOut("로그아웃되었습니다.");
+      });
+
+      formEl.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const body = inputEl.value.trim();
+        if (!body || !session) return;
+
+        sendBtn.disabled = true;
+        try {
+          await api("/rest/v1/project_chat_messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Prefer: "return=minimal",
+            },
+            body: JSON.stringify({ project, body }),
+          });
+          inputEl.value = "";
+          await loadMessages();
+        } catch (err) {
+          setText(
+            statusEl,
+            err && err.message ? `전송 실패: ${err.message}` : "전송에 실패했습니다.",
+          );
+        } finally {
+          sendBtn.disabled = false;
+          setComposerEnabled(true);
+          inputEl.focus();
+        }
+      });
+
+      window.addEventListener("focus", () => {
+        if (session && login) loadMessages().catch(() => {});
+      });
+
+      boot();
+    });
+  })();
+</script>
+
+<style>
+  .project-chat {
+    position: sticky;
+    top: 86px;
+    display: flex;
+    flex-direction: column;
+    min-height: 520px;
+    max-height: calc(100vh - 112px);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-1);
+    overflow: hidden;
+  }
+
+  .project-chat__header {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 15px 15px 13px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+
+  .project-chat__eyebrow {
+    margin: 0 0 3px;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .project-chat h2 {
+    margin: 0;
+    color: var(--fg-1);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .project-chat__project {
+    max-width: 150px;
+    overflow: hidden;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-chat__status {
+    margin: 12px 12px 0;
+    padding: 9px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg-2);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .project-chat__auth {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .project-chat button {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-2);
+    color: var(--fg-1);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .project-chat button:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+
+  .project-chat button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .project-chat__auth button {
+    min-height: 32px;
+    padding: 0 10px;
+  }
+
+  .project-chat__messages {
+    flex: 1;
+    min-height: 220px;
+    overflow-y: auto;
+    padding: 2px 12px 14px;
+  }
+
+  .project-chat__empty {
+    margin: 18px 4px;
+    color: var(--fg-3);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .project-chat__message {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .project-chat__message.is-own .project-chat__bubble {
+    border-color: color-mix(in oklch, var(--accent) 35%, var(--border));
+    background: color-mix(in oklch, var(--accent) 8%, var(--bg-1));
+  }
+
+  .project-chat__avatar {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--bg-2);
+    color: var(--fg-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .project-chat__avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .project-chat__bubble {
+    min-width: 0;
+    padding: 8px 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px;
+    background: var(--bg);
+  }
+
+  .project-chat__meta {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+
+  .project-chat__meta span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--fg-2);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-chat__bubble p {
+    margin: 0;
+    color: var(--fg-1);
+    font-size: 12.5px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .project-chat__form {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-1);
+  }
+
+  .project-chat textarea {
+    width: 100%;
+    min-height: 78px;
+    resize: vertical;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg-1);
+    font-size: 13px;
+    line-height: 1.5;
+    outline: none;
+    padding: 9px 10px;
+  }
+
+  .project-chat textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 15%, transparent);
+  }
+
+  .project-chat__form-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+  }
+
+  .project-chat__user {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-chat__form-row button {
+    min-width: 64px;
+    min-height: 32px;
+    padding: 0 12px;
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  @media (max-width: 1120px) {
+    .project-chat {
+      position: static;
+      max-height: none;
+      min-height: 480px;
+    }
+  }
+</style>

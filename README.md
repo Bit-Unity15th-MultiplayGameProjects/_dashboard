@@ -157,7 +157,51 @@ org 내 프로젝트 private repo 를 읽기 위한 fine-grained PAT (read-only)
 > `public/.nojekyll` 로 Jekyll 처리를 끄고 `build.assets: "assets"` 로 Astro 기본
 > `_astro/` 디렉토리를 회피한다. 배포 후에도 404 가 나면 [CLAUDE.md § Known Issues](./CLAUDE.md#known-issues) 의 2차 대안 참고.
 
-### 3.4 첫 빌드 트리거
+### 3.4 프로젝트 채팅 설정
+
+프로젝트 상세 페이지 오른쪽에는 Supabase DB 기반 강사 채팅 패널이 붙는다.
+GitHub OAuth 로 로그인한 사용자 중 **대시보드 소유자** 또는 해당 프로젝트
+**contributor** 만 대화 이력을 읽고 메시지를 남길 수 있다.
+
+Supabase 를 채택한 이유:
+
+- 이 대시보드는 GitHub Pages 정적 사이트라 서버 코드를 직접 실행할 수 없다.
+  Supabase 는 브라우저에서 호출 가능한 Auth + REST API + Postgres 를 제공해
+  별도 API 서버 없이 채팅 로그를 영속화할 수 있다.
+- 채팅 데이터는 커밋/리포트와 분리된 DB 에 저장되므로 리포트 생성 주기나
+  Codex 게이트와 독립적으로 유지된다.
+- public `anon` key 는 브라우저에 노출되지만, 실제 읽기/쓰기는 Postgres RLS 로
+  제한한다. RLS 는 사용자가 바꿀 수 있는 `user_metadata` 를 권한 근거로 삼지 않고,
+  Supabase `auth.uid()` 와 서버가 만든 `project_chat_profiles`,
+  `project_chat_members` 테이블을 기준으로 판정한다.
+- contributor 목록은 `_dashboard` 의 `sync-chat-members` workflow 가 GitHub API 로
+  읽어 Supabase 에 동기화한다. 프로젝트 repo 에 workflow 나 파일을 추가하지 않는다.
+
+운영자가 준비할 것:
+
+1. Supabase 프로젝트를 만든 뒤 [db/supabase-chat.sql](./db/supabase-chat.sql)
+   을 SQL editor 에서 1회 실행한다.
+2. Supabase Auth 의 GitHub provider 를 켠다. GitHub OAuth App callback URL 은
+   Supabase 프로젝트의 `/auth/v1/callback` 주소를 사용하고, redirect allowlist 에
+   Pages URL `https://bit-unity15th-multiplaygameprojects.github.io/_dashboard/*`
+   를 등록한다.
+3. 이 repo 의 **Settings → Secrets and variables → Actions** 에 아래 값을 등록한다.
+
+   | 이름 | 종류 | 설명 |
+   |---|---|---|
+   | `CHAT_SUPABASE_URL` | Variable | Supabase project URL |
+   | `CHAT_SUPABASE_ANON_KEY` | Variable | 브라우저에서 쓰는 public anon key |
+   | `CHAT_OWNER_LOGINS` | Variable | 대시보드 소유자 GitHub login 목록, 쉼표 구분 |
+   | `CHAT_SUPABASE_SERVICE_ROLE_KEY` | Secret | contributor 동기화 workflow 전용 service role key |
+
+4. **Actions → sync-chat-members → Run workflow** 를 한 번 실행한다. 이후에는
+   `generate-reports` 완료 직후와 1시간 주기 cron 으로 contributor 권한이 갱신된다.
+
+로컬 개발에서는 `.env.example` 을 참고해 `PUBLIC_CHAT_SUPABASE_URL`,
+`PUBLIC_CHAT_SUPABASE_ANON_KEY` 를 `.env` 에 넣으면 된다. 설정이 없으면
+패널은 렌더되지만 로그인과 전송은 비활성 상태로 표시된다.
+
+### 3.5 첫 빌드 트리거
 
 Secrets 등록과 Pages source 전환이 끝났으면:
 

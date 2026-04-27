@@ -60,6 +60,9 @@ jobs:
         env:
           # Astro 공식 Pages 가이드 권장
           NODE_ENV: production
+          # Public browser config for the optional Supabase-backed project chat.
+          PUBLIC_CHAT_SUPABASE_URL: ${{ vars.CHAT_SUPABASE_URL }}
+          PUBLIC_CHAT_SUPABASE_ANON_KEY: ${{ vars.CHAT_SUPABASE_ANON_KEY }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
