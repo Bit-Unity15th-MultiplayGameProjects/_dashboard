@@ -8,6 +8,7 @@ import ProjectCard from "../components/ProjectCard.astro";
 import ProjectTable from "../components/ProjectTable.astro";
 import FilterTabs from "../components/FilterTabs.astro";
 import ViewToggle from "../components/ViewToggle.astro";
+import ProjectChat from "../components/ProjectChat.astro";
 import {
   getAllReports,
   getProjectSummaries,
@@ -17,6 +18,10 @@ import {
 
 const BASE = import.meta.env.BASE_URL;
 const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
+const ORG = "Bit-Unity15th-MultiplayGameProjects";
+const ORG_CHAT_KEY = "__organization__";
+const chatSupabaseUrl = import.meta.env.PUBLIC_CHAT_SUPABASE_URL ?? "";
+const chatSupabaseAnonKey = import.meta.env.PUBLIC_CHAT_SUPABASE_ANON_KEY ?? "";
 
 const allReports = await getAllReports();
 const projects = await getProjectSummaries();
@@ -93,7 +98,7 @@ const cards = projects.map((p) => ({
         <p
           style="margin:6px 0 0;color:var(--fg-2);font-size:13px;line-height:1.6;"
         >
-          Bit-Unity15th-MultiplayGameProjects organization 내 {totalProjects}개
+          {ORG} organization 내 {totalProjects}개
           프로젝트의 코드리뷰·진행도 리포트.
         </p>
       </div>
@@ -197,6 +202,25 @@ const cards = projects.map((p) => ({
   </section>
 
   <Footer />
+
+  <ProjectChat
+    project={ORG_CHAT_KEY}
+    org={ORG}
+    supabaseUrl={chatSupabaseUrl}
+    supabaseAnonKey={chatSupabaseAnonKey}
+    title="조직 채팅"
+    eyebrow="Organization channel"
+    toggleLabel="조직 채팅"
+    channelName={ORG}
+    placeholder="조직 채팅 메시지"
+    accessHint="organization member만 대화를 볼 수 있습니다."
+    unauthorizedMessage={`${ORG} organization member만 참여할 수 있습니다.`}
+    emptyMessage="아직 조직 채팅 메시지가 없습니다."
+    ownerStatus="대시보드 소유자 권한으로 연결되었습니다."
+    memberStatus="organization member 권한으로 연결되었습니다."
+    contributorStatus="organization member 권한으로 연결되었습니다."
+    ariaLabel="조직 채팅"
+  />
 </Layout>
 
 <style is:global>

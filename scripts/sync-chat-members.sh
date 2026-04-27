@@ -11,6 +11,7 @@
 #
 # Optional env:
 #   TARGET_REPOS_JSON       JSON array of repo names. If omitted, list-target-repos.sh is used.
+#   ORG_CHAT_PROJECT_KEY    Supabase channel key for organization-wide chat.
 
 set -euo pipefail
 
@@ -24,6 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export GH_TOKEN
 
 SUPABASE_URL="${SUPABASE_URL%/}"
+ORG_CHAT_PROJECT_KEY="${ORG_CHAT_PROJECT_KEY:-__organization__}"
 
 owners_json="$(
   jq -Rn --arg raw "$CHAT_OWNER_LOGINS" '
@@ -49,6 +51,70 @@ fi
 repo_count="$(jq 'length' <<<"$repos_json")"
 echo "[info] syncing chat members for $repo_count repo(s)" >&2
 echo "[info] owner login count: $owner_count" >&2
+
+post_members() {
+  local project_key="$1"
+  local members_json="$2"
+  local summary="$3"
+
+  local payload
+  payload="$(
+    jq -cn \
+      --arg project "$project_key" \
+      --argjson members "$members_json" \
+      '{p_project: $project, p_members: $members}'
+  )"
+
+  curl -fsS \
+    -X POST "$SUPABASE_URL/rest/v1/rpc/replace_project_chat_members" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Content-Type: application/json" \
+    --data "$payload" \
+    >/dev/null
+
+  local member_count
+  member_count="$(jq 'length' <<<"$members_json")"
+  echo "[info] synced $member_count member(s) for $project_key: $summary" >&2
+}
+
+org_members_json="$(
+  gh api "orgs/${ORG}/members" --paginate --jq '.[].login' \
+    | jq -R -s -c '
+        split("\n")
+        | map(ascii_downcase | select(length > 0))
+        | unique
+      '
+)"
+
+org_member_count="$(jq 'length' <<<"$org_members_json")"
+if [[ "$org_member_count" == "0" ]]; then
+  echo "::warning::No organization members were returned by GitHub. Check that ORG_REPO_PAT_BIT_UNITY_15TH has organization Members: Read access." >&2
+fi
+
+org_chat_members_json="$(
+  jq -cn \
+    --argjson owners "$owners_json" \
+    --argjson org_members "$org_members_json" '
+      [
+        ($owners[]? | {login: ., role: "owner"}),
+        ($org_members[]? | {login: ., role: "member"})
+      ]
+      | group_by(.login)
+      | map(
+          if (map(.role) | index("owner")) then
+            {login: .[0].login, role: "owner"}
+          else
+            .[0]
+          end
+        )
+    '
+)"
+
+post_members \
+  "$ORG_CHAT_PROJECT_KEY" \
+  "$org_chat_members_json" \
+  "$org_member_count organization member(s), $owner_count owner(s)"
 
 while IFS= read -r repo; do
   [[ -n "$repo" ]] || continue
@@ -83,22 +149,9 @@ while IFS= read -r repo; do
       '
   )"
 
-  payload="$(
-    jq -cn \
-      --arg project "$project_key" \
-      --argjson members "$members_json" \
-      '{p_project: $project, p_members: $members}'
-  )"
-
-  curl -fsS \
-    -X POST "$SUPABASE_URL/rest/v1/rpc/replace_project_chat_members" \
-    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-    -H "Content-Type: application/json" \
-    --data "$payload" \
-    >/dev/null
-
-  member_count="$(jq 'length' <<<"$members_json")"
   contributor_count="$(jq 'length' <<<"$contributors_json")"
-  echo "[info] synced $member_count member(s) for $project_key: $contributor_count contributor(s), $owner_count owner(s)" >&2
+  post_members \
+    "$project_key" \
+    "$members_json" \
+    "$contributor_count contributor(s), $owner_count owner(s)"
 done < <(jq -r '.[]' <<<"$repos_json")

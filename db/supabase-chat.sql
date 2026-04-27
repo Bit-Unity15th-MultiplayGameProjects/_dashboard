@@ -9,10 +9,16 @@ drop function if exists public.dashboard_chat_github_login();
 create table if not exists public.project_chat_members (
   project text not null,
   login text not null,
-  role text not null check (role in ('owner', 'contributor')),
+  role text not null check (role in ('owner', 'contributor', 'member')),
   synced_at timestamptz not null default now(),
   primary key (project, login)
 );
+
+alter table public.project_chat_members
+  drop constraint if exists project_chat_members_role_check;
+alter table public.project_chat_members
+  add constraint project_chat_members_role_check
+  check (role in ('owner', 'contributor', 'member'));
 
 create index if not exists project_chat_members_login_idx
   on public.project_chat_members (login);
@@ -289,6 +295,7 @@ begin
     lower(trim(member ->> 'login')),
     case
       when member ->> 'role' = 'owner' then 'owner'
+      when member ->> 'role' = 'member' then 'member'
       else 'contributor'
     end,
     now()

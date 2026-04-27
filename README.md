@@ -159,9 +159,10 @@ org 내 프로젝트 private repo 를 읽기 위한 fine-grained PAT (read-only)
 
 ### 3.4 프로젝트 채팅 설정
 
-프로젝트 상세 페이지 오른쪽에는 Supabase DB 기반 강사 채팅 패널이 붙는다.
-GitHub OAuth 로 로그인한 사용자 중 **대시보드 소유자** 또는 해당 프로젝트
-**contributor** 만 대화 이력을 읽고 메시지를 남길 수 있다.
+대시보드 홈과 프로젝트 상세 페이지에는 Supabase DB 기반 플로팅 채팅 패널이
+붙는다. 홈의 **조직 채팅**은 GitHub OAuth 로 로그인한 organization member 가
+참여할 수 있고, 프로젝트 상세의 **강사 채팅**은 **대시보드 소유자** 또는 해당
+프로젝트 **contributor** 만 대화 이력을 읽고 메시지를 남길 수 있다.
 
 Supabase 를 채택한 이유:
 
@@ -174,8 +175,9 @@ Supabase 를 채택한 이유:
   제한한다. RLS 는 사용자가 바꿀 수 있는 `user_metadata` 를 권한 근거로 삼지 않고,
   Supabase `auth.uid()` 와 서버가 만든 `project_chat_profiles`,
   `project_chat_members` 테이블을 기준으로 판정한다.
-- contributor 목록은 `_dashboard` 의 `sync-chat-members` workflow 가 GitHub API 로
-  읽어 Supabase 에 동기화한다. 프로젝트 repo 에 workflow 나 파일을 추가하지 않는다.
+- organization member / contributor 목록은 `_dashboard` 의 `sync-chat-members`
+  workflow 가 GitHub API 로 읽어 Supabase 에 동기화한다. 프로젝트 repo 에
+  workflow 나 파일을 추가하지 않는다.
 
 운영자가 준비할 것:
 
@@ -192,10 +194,14 @@ Supabase 를 채택한 이유:
    | `CHAT_SUPABASE_URL` | Variable | Supabase project URL |
    | `CHAT_SUPABASE_ANON_KEY` | Variable | 브라우저에서 쓰는 public anon key |
    | `CHAT_OWNER_LOGINS` | Variable | 대시보드 소유자 GitHub login 목록, 쉼표 구분 |
-   | `CHAT_SUPABASE_SERVICE_ROLE_KEY` | Secret | contributor 동기화 workflow 전용 service role key |
+   | `CHAT_SUPABASE_SERVICE_ROLE_KEY` | Secret | member/contributor 동기화 workflow 전용 service role key |
+
+   조직 채팅이 organization member 전체를 정확히 동기화하려면
+   `ORG_REPO_PAT_BIT_UNITY_15TH` 토큰에 org **Members: Read-only** 권한도 필요하다.
+   이 권한이 없으면 GitHub API 가 public member 만 반환할 수 있다.
 
 4. **Actions → sync-chat-members → Run workflow** 를 한 번 실행한다. 이후에는
-   `generate-reports` 완료 직후와 1시간 주기 cron 으로 contributor 권한이 갱신된다.
+   `generate-reports` 완료 직후와 1시간 주기 cron 으로 member/contributor 권한이 갱신된다.
 
 로컬 개발에서는 `.env.example` 을 참고해 `PUBLIC_CHAT_SUPABASE_URL`,
 `PUBLIC_CHAT_SUPABASE_ANON_KEY` 를 `.env` 에 넣으면 된다. 설정이 없으면

@@ -4,9 +4,38 @@ interface Props {
   org: string;
   supabaseUrl?: string;
   supabaseAnonKey?: string;
+  title?: string;
+  eyebrow?: string;
+  toggleLabel?: string;
+  channelName?: string;
+  placeholder?: string;
+  accessHint?: string;
+  unauthorizedMessage?: string;
+  emptyMessage?: string;
+  ownerStatus?: string;
+  contributorStatus?: string;
+  memberStatus?: string;
+  ariaLabel?: string;
 }
 
-const { project, org, supabaseUrl = "", supabaseAnonKey = "" } = Astro.props;
+const {
+  project,
+  org,
+  supabaseUrl = "",
+  supabaseAnonKey = "",
+  title = "강사 채팅",
+  eyebrow = "Instructor channel",
+  toggleLabel = "강사 채팅",
+  channelName = project,
+  placeholder = "강사에게 남길 메시지",
+  accessHint = "프로젝트 contributor와 대시보드 소유자만 대화를 볼 수 있습니다.",
+  unauthorizedMessage = `${org}/${project} contributor 또는 대시보드 소유자만 참여할 수 있습니다.`,
+  emptyMessage = "아직 남겨진 대화가 없습니다.",
+  ownerStatus = "대시보드 소유자 권한으로 연결되었습니다.",
+  contributorStatus = "프로젝트 contributor 권한으로 연결되었습니다.",
+  memberStatus = "organization member 권한으로 연결되었습니다.",
+  ariaLabel = title,
+} = Astro.props;
 const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 ---
 
@@ -18,7 +47,12 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   data-org={org}
   data-supabase-url={supabaseUrl}
   data-supabase-anon-key={supabaseAnonKey}
-  aria-label="프로젝트 강사 채팅"
+  data-empty-message={emptyMessage}
+  data-unauthorized-message={unauthorizedMessage}
+  data-owner-status={ownerStatus}
+  data-contributor-status={contributorStatus}
+  data-member-status={memberStatus}
+  aria-label={ariaLabel}
 >
   <button
     type="button"
@@ -29,8 +63,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   >
     <span class="project-chat__toggle-icon" aria-hidden="true"></span>
     <span class="project-chat__toggle-copy">
-      <span>강사 채팅</span>
-      <small>{project}</small>
+      <span>{toggleLabel}</span>
+      <small>{channelName}</small>
     </span>
   </button>
 
@@ -41,8 +75,8 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
   >
     <div class="project-chat__header">
       <div>
-        <p class="project-chat__eyebrow">Instructor channel</p>
-        <h2>강사 채팅</h2>
+        <p class="project-chat__eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
       </div>
       <button type="button" class="project-chat__close" data-chat-close aria-label="채팅 닫기">
         ×
@@ -64,7 +98,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
 
     <div class="project-chat__messages" data-chat-messages role="log" aria-live="polite">
       <p class="project-chat__empty">
-        프로젝트 contributor와 대시보드 소유자만 대화를 볼 수 있습니다.
+        {accessHint}
       </p>
     </div>
 
@@ -74,7 +108,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
         name="message"
         rows="3"
         maxlength="1200"
-        placeholder="강사에게 남길 메시지"
+        placeholder={placeholder}
         disabled></textarea>
       <div class="project-chat__form-row">
         <span data-chat-user class="project-chat__user">로그인 필요</span>
@@ -193,12 +227,12 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       return (login || "?").slice(0, 1).toUpperCase();
     }
 
-    function renderMessages(listEl, messages, ownLogin) {
+    function renderMessages(listEl, messages, ownLogin, emptyMessage) {
       listEl.replaceChildren();
       if (messages.length === 0) {
         const empty = document.createElement("p");
         empty.className = "project-chat__empty";
-        empty.textContent = "아직 남겨진 대화가 없습니다.";
+        empty.textContent = emptyMessage;
         listEl.appendChild(empty);
         return;
       }
@@ -249,6 +283,18 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
       const org = root.dataset.org || "";
       const supabaseUrl = (root.dataset.supabaseUrl || "").replace(/\/$/, "");
       const anonKey = root.dataset.supabaseAnonKey || "";
+      const emptyMessage =
+        root.dataset.emptyMessage || "아직 남겨진 대화가 없습니다.";
+      const unauthorizedMessage =
+        root.dataset.unauthorizedMessage ||
+        `${org}/${project} contributor 또는 대시보드 소유자만 참여할 수 있습니다.`;
+      const ownerStatus =
+        root.dataset.ownerStatus || "대시보드 소유자 권한으로 연결되었습니다.";
+      const contributorStatus =
+        root.dataset.contributorStatus ||
+        "프로젝트 contributor 권한으로 연결되었습니다.";
+      const memberStatus =
+        root.dataset.memberStatus || "organization member 권한으로 연결되었습니다.";
 
       const toggleBtn = root.querySelector("[data-chat-toggle]");
       const closeBtn = root.querySelector("[data-chat-close]");
@@ -378,7 +424,12 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
         const messages = await api(`/rest/v1/project_chat_messages?${query}`, {
           method: "GET",
         });
-        renderMessages(messagesEl, Array.isArray(messages) ? messages : [], login);
+        renderMessages(
+          messagesEl,
+          Array.isArray(messages) ? messages : [],
+          login,
+          emptyMessage,
+        );
       }
 
       async function boot() {
@@ -411,7 +462,7 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
             setText(userEl, login ? `@${login}` : "권한 없음");
             setText(
               statusEl,
-              `${org}/${project} contributor 또는 대시보드 소유자만 참여할 수 있습니다.`,
+              unauthorizedMessage,
             );
             messagesEl.replaceChildren();
             const empty = document.createElement("p");
@@ -426,8 +477,10 @@ const configured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
           setText(
             statusEl,
             member.role === "owner"
-              ? "대시보드 소유자 권한으로 연결되었습니다."
-              : "프로젝트 contributor 권한으로 연결되었습니다.",
+              ? ownerStatus
+              : member.role === "member"
+                ? memberStatus
+                : contributorStatus,
           );
           setComposerEnabled(true);
           await loadMessages();
