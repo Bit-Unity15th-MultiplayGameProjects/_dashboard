@@ -507,19 +507,9 @@ jobs:
           mkdir -p /tmp/summary
           # matrix.repo 에 `/` 가 들어올 수 있다는 가정 (현재는 없지만 방어적).
           SAFE="${REPO//\//__}"
-          jq -n \
-            --arg repo         "$REPO" \
-            --arg should_run   "${SHOULD_RUN:-unknown}" \
-            --arg reason       "${REASON:-gate step failed before emit}" \
-            --arg first_report "${FIRST_REPORT:-}" \
-            --arg commit_count "${COMMIT_COUNT:-0}" \
-            --arg current_sha  "${CURRENT_SHA:-}" \
-            --arg run_status   "${RUN_STATUS:-skipped}" \
-            --arg out_file     "${OUT_FILE:-}" \
-            --arg reports_pushed "${REPORTS_PUSHED:-false}" \
-            --arg reconcile_pushed "${RECONCILE_PUSHED:-false}" \
-            '$ARGS.named' \
-            > "/tmp/summary/${SAFE}.json"
+          SUMMARY_FILE="/tmp/summary/${SAFE}.json"
+          export SUMMARY_FILE
+          python3 -c 'import json, os; data = {"repo": os.environ.get("REPO", ""), "should_run": os.environ.get("SHOULD_RUN") or "unknown", "reason": os.environ.get("REASON") or "gate step failed before emit", "first_report": os.environ.get("FIRST_REPORT", ""), "commit_count": os.environ.get("COMMIT_COUNT") or "0", "current_sha": os.environ.get("CURRENT_SHA", ""), "run_status": os.environ.get("RUN_STATUS") or "skipped", "out_file": os.environ.get("OUT_FILE", ""), "reports_pushed": os.environ.get("REPORTS_PUSHED") or "false", "reconcile_pushed": os.environ.get("RECONCILE_PUSHED") or "false"}; open(os.environ["SUMMARY_FILE"], "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False) + "\n")'
 
       - name: Upload cell summary
         if: always()
