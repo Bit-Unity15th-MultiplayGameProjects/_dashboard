@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
 
-# 기본은 read-only. reports/ 커밋은 review job 에서만 contents: write 로 올린다.
+# Default is read-only. review pushes report commits; summary dispatches deploys.
 permissions:
   contents: read
 
@@ -212,6 +212,7 @@ jobs:
       # runner 이미지 변경 대비해 명시적으로 보장.
       # ---------------------------------------------------------------------
       - name: Commit reconciled report directory
+        id: push_reconcile
         if: steps.report_dir.outputs.changed == 'true' && steps.gate.outputs.should_run != 'true'
         env:
           REPO:   ${{ matrix.repo }}
@@ -225,6 +226,7 @@ jobs:
 
           if git diff --staged --quiet; then
             echo "[info] no reconciliation changes staged" >&2
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -248,6 +250,8 @@ jobs:
               exit 1
             fi
           done
+
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
 
       - name: Ensure Python deps
         if: steps.gate.outputs.should_run == 'true'
@@ -433,9 +437,10 @@ jobs:
 
       # ---------------------------------------------------------------------
       # 커밋 & 푸시. 같은 branch 동시 push 경합 대비 rebase retry.
-      # [skip ci] 는 붙이지 않는다 → deploy.yml 이 트리거돼야 한다.
+      # Record push success so the summary job can dispatch one deploy.
       # ---------------------------------------------------------------------
       - name: Commit and push reports
+        id: push_reports
         if: steps.run.outputs.status == 'success'
         env:
           REPO:        ${{ matrix.repo }}
@@ -450,6 +455,7 @@ jobs:
 
           if git diff --staged --quiet; then
             echo "[info] no changes staged (unexpected, but tolerable)" >&2
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -477,6 +483,8 @@ jobs:
             fi
           done
 
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
       # ---------------------------------------------------------------------
       # 이 cell 의 결과 요약을 artifact 로 뽑는다. summary 잡이 수집.
       # always(): 게이트/Codex/푸시 어디서 실패하든 항상 무언가 남긴다.
@@ -492,6 +500,8 @@ jobs:
           CURRENT_SHA:  ${{ steps.gate.outputs.current_sha }}
           RUN_STATUS:   ${{ steps.run.outputs.status }}
           OUT_FILE:     ${{ steps.run.outputs.out_file }}
+          REPORTS_PUSHED: ${{ steps.push_reports.outputs.pushed }}
+          RECONCILE_PUSHED: ${{ steps.push_reconcile.outputs.pushed }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/summary
@@ -506,10 +516,13 @@ jobs:
             --arg current_sha  "${CURRENT_SHA:-}" \
             --arg run_status   "${RUN_STATUS:-skipped}" \
             --arg out_file     "${OUT_FILE:-}" \
-            '{repo:$repo, should_run:$should_run, reason:$reason,
-              first_report:$first_report, commit_count:$commit_count,
-              current_sha:$current_sha, run_status:$run_status,
-              out_file:$out_file}' \
+            --arg reports_pushed "${REPORTS_PUSHED:-false}" \
+            --arg reconcile_pushed "${RECONCILE_PUSHED:-false}" \
+            '{"repo":$repo, "should_run":$should_run, "reason":$reason,
+              "first_report":$first_report, "commit_count":$commit_count,
+              "current_sha":$current_sha, "run_status":$run_status,
+              "out_file":$out_file, "reports_pushed":$reports_pushed,
+              "reconcile_pushed":$reconcile_pushed}' \
             > "/tmp/summary/${SAFE}.json"
 
       - name: Upload cell summary
@@ -529,7 +542,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      actions: read
+      contents: write
     steps:
       - name: Download all cell summaries
         uses: actions/download-artifact@v4
@@ -575,3 +589,32 @@ jobs:
               echo "| \`$repo\` | $sr | $st | $rn | $cc | $rep_cell |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch Pages deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          FILES=(/tmp/summary/*.json)
+          SHOULD_DEPLOY=false
+
+          for f in "${FILES[@]}"; do
+            if jq -e '(.reports_pushed == "true") or (.reconcile_pushed == "true")' "$f" >/dev/null; then
+              SHOULD_DEPLOY=true
+              break
+            fi
+          done
+
+          if [[ "$SHOULD_DEPLOY" != "true" ]]; then
+            echo "[info] no pushed report changes; skipping Pages deploy dispatch" >&2
+            exit 0
+          fi
+
+          gh api "repos/${REPOSITORY}/dispatches" \
+            --method POST \
+            -f event_type=reports_changed \
+            -F "client_payload[run_id]=${GITHUB_RUN_ID}" \
+            -F "client_payload[run_number]=${GITHUB_RUN_NUMBER}"

@@ -1,25 +1,12 @@
 name: sync-chat-members
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "scripts/sync-chat-members.sh"
-      - ".github/workflows/sync-chat-members.yml"
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "특정 repo 하나만 동기화 (빈칸이면 전체)"
+        description: "Sync one repo only. Leave empty to sync all target repos."
         required: false
         type: string
-  schedule:
-    # Contributor 권한은 리뷰 호출과 독립적으로 가볍게 갱신한다.
-    - cron: "17 * * * *"
-  workflow_run:
-    workflows: ["generate-reports"]
-    types:
-      - completed
-    branches: [main]
 
 permissions:
   contents: read
@@ -35,9 +22,6 @@ jobs:
   sync:
     name: Sync chat members
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion != 'cancelled'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
