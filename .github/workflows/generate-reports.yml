@@ -518,11 +518,7 @@ jobs:
             --arg out_file     "${OUT_FILE:-}" \
             --arg reports_pushed "${REPORTS_PUSHED:-false}" \
             --arg reconcile_pushed "${RECONCILE_PUSHED:-false}" \
-            '{"repo":$repo, "should_run":$should_run, "reason":$reason,
-              "first_report":$first_report, "commit_count":$commit_count,
-              "current_sha":$current_sha, "run_status":$run_status,
-              "out_file":$out_file, "reports_pushed":$reports_pushed,
-              "reconcile_pushed":$reconcile_pushed}' \
+            '$ARGS.named' \
             > "/tmp/summary/${SAFE}.json"
 
       - name: Upload cell summary
