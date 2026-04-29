@@ -502,12 +502,18 @@ jobs:
           OUT_FILE:     ${{ steps.run.outputs.out_file }}
           REPORTS_PUSHED: ${{ steps.push_reports.outputs.pushed }}
           RECONCILE_PUSHED: ${{ steps.push_reconcile.outputs.pushed }}
+          SUMMARY_DIR:  ${{ runner.temp }}/summary
         run: |
           set -euo pipefail
-          mkdir -p /tmp/summary
+          if command -v cygpath >/dev/null 2>&1; then
+            SUMMARY_DIR_BASH="$(cygpath -u "$SUMMARY_DIR")"
+          else
+            SUMMARY_DIR_BASH="$SUMMARY_DIR"
+          fi
+          mkdir -p "$SUMMARY_DIR_BASH"
           # matrix.repo 에 `/` 가 들어올 수 있다는 가정 (현재는 없지만 방어적).
           SAFE="${REPO//\//__}"
-          SUMMARY_FILE="/tmp/summary/${SAFE}.json"
+          SUMMARY_FILE="${SUMMARY_DIR_BASH}/${SAFE}.json"
           export SUMMARY_FILE
           python3 -c 'import json, os; data = {"repo": os.environ.get("REPO", ""), "should_run": os.environ.get("SHOULD_RUN") or "unknown", "reason": os.environ.get("REASON") or "gate step failed before emit", "first_report": os.environ.get("FIRST_REPORT", ""), "commit_count": os.environ.get("COMMIT_COUNT") or "0", "current_sha": os.environ.get("CURRENT_SHA", ""), "run_status": os.environ.get("RUN_STATUS") or "skipped", "out_file": os.environ.get("OUT_FILE", ""), "reports_pushed": os.environ.get("REPORTS_PUSHED") or "false", "reconcile_pushed": os.environ.get("RECONCILE_PUSHED") or "false"}; open(os.environ["SUMMARY_FILE"], "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False) + "\n")'
 
@@ -516,7 +522,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: summary-${{ matrix.repo }}
-          path: /tmp/summary/*.json
+          path: ${{ runner.temp }}/summary/*.json
           if-no-files-found: ignore
           retention-days: 7
 
