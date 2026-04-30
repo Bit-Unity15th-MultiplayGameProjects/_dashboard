@@ -1,9 +1,9 @@
 {
-  "last_sha": "1f2c0f9d256ce6d52e2b4fdb7907d354056b52f3",
-  "last_report_at": "2026-04-29T07:59:20+00:00",
-  "last_report_file": "reports/Exit-or-die/2026-04-29T07-58-28Z.md",
-  "report_count": 4,
-  "last_commit_at": "2026-04-29T16:47:44+09:00",
+  "last_sha": "6085536fe42f1ebd139ae4063ff23cbb4691c8de",
+  "last_report_at": "2026-04-30T05:24:03+00:00",
+  "last_report_file": "reports/Exit-or-die/2026-04-30T05-20-36Z.md",
+  "report_count": 5,
+  "last_commit_at": "2026-04-30T13:35:54+09:00",
   "contributors": [
     "kimin",
     "김인"
@@ -11,5 +11,8 @@
   "repo_full_name": "Bit-Unity15th-MultiplayGameProjects/Exit-or-die",
   "repo_id": 1219681604,
   "repo_name": "Exit-or-die",
-  "repo_node_id": "R_kgDOSLLdRA"
+  "repo_node_id": "R_kgDOSLLdRA",
+  "recent_report_ats": [
+    "2026-04-30T05:24:03+00:00"
+  ]
 }
