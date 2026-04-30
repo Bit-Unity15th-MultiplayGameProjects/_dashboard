@@ -1,14 +1,17 @@
 {
-  "last_sha": "fd2c0284331ad082987a87cb10b808d415bd2915",
-  "last_report_at": "2026-04-28T08:57:41+00:00",
-  "last_report_file": "reports/Rougelike-EndWalker/2026-04-28T08-56-46Z.md",
-  "report_count": 4,
-  "last_commit_at": "2026-04-28T17:48:54+09:00",
+  "last_sha": "10a236d4b23030cf4a11087fcb702e4bfb95d1c4",
+  "last_report_at": "2026-04-30T06:25:45+00:00",
+  "last_report_file": "reports/Rougelike-EndWalker/2026-04-30T06-24-23Z.md",
+  "report_count": 5,
+  "last_commit_at": "2026-04-30T14:47:35+09:00",
   "contributors": [
     "verpivia-1"
   ],
   "repo_full_name": "Bit-Unity15th-MultiplayGameProjects/Rougelike-EndWalker",
   "repo_id": 1216538696,
   "repo_name": "Rougelike-EndWalker",
-  "repo_node_id": "R_kgDOSILoSA"
+  "repo_node_id": "R_kgDOSILoSA",
+  "recent_report_ats": [
+    "2026-04-30T06:25:45+00:00"
+  ]
 }
