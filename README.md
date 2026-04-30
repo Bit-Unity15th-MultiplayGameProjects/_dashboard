@@ -240,7 +240,7 @@ Secrets 등록과 Pages source 전환이 끝났으면:
 ```yaml
 on:
   schedule:
-    - cron: "*/30 * * * *"   # 기본: 30분마다
+    - cron: "*/10 * * * *"   # 기본: 10분마다
 ```
 
 **게이트 파라미터**:
@@ -248,15 +248,14 @@ on:
 ```yaml
 env:
   ORG: Bit-Unity15th-MultiplayGameProjects
-  MIN_INTERVAL_HOURS: "6"   # 같은 repo 재리뷰 최소 간격
-  MIN_COMMITS: "2"          # 이 값 미만 커밋이면 skip
+  REPORT_RATE_WINDOW_HOURS: "1"    # burst 판단 창
+  REPORT_RATE_MAX: "5"             # burst 창 안에서 허용할 최대 report 수
+  REPORT_RATE_COOLDOWN_HOURS: "3"  # burst 이후 자동 생성 차단 시간
 ```
 
-- `MIN_INTERVAL_HOURS` 를 늘리면 리포트 간격이 벌어져 Codex 호출 수가 준다.
-- `MIN_COMMITS` 를 늘리면 잔잔한 작업(1커밋짜리 오타 수정 등)에 리포트가 안
-  낭비된다.
-- cron 자체를 `0 */2 * * *` 같이 늘리면 discover/gate 실행 빈도도 줄어
-  Actions 사용량까지 절감된다. 단 프로젝트 push 에 대한 반응성은 낮아진다.
+- 대상 repo의 default branch HEAD SHA가 바뀌면 1커밋이어도 report를 생성한다.
+- 1시간 내 5회 report가 발행되면, 5번째 report 시각부터 3시간 동안 자동 생성만 막는다.
+- `workflow_dispatch`에서 `force=true`로 수동 실행하면 자동 생성 rate limit은 우회한다.
 
 수정 후 main 에 push 하면 다음 cron 틱부터 적용.
 
@@ -315,8 +314,8 @@ cell 이 failed. Actions summary 에 `status=failed`, `out_file` 없음.
 
 1. `generate-reports.yml` 은 기본 `max-parallel: 1` 이다. 단일 `auth.json` 을 여러 job 이
    동시에 쓰지 않도록 이 값을 올리지 않는다.
-2. `MIN_INTERVAL_HOURS` 상향 (6 → 12), `MIN_COMMITS` 상향 (2 → 5) 으로 실제
-   호출 빈도 감소.
+2. `REPORT_RATE_MAX` 하향 또는 `REPORT_RATE_COOLDOWN_HOURS` 상향으로 burst 이후
+   자동 호출 빈도 감소.
 3. 401 이 지속되면 trusted machine 에서 `codex login` 을 다시 수행하고 self-hosted
    runner 의 `~/.codex/auth.json` 을 재시드한다.
 
@@ -416,7 +415,7 @@ daily_codex_calls ≈ N × R
 
 - `N` — 리뷰 대상 repo 수 (archived, `_`-prefix, `.reviewignore` 제외 후의 실제 cell 수).
 - `R` — 한 repo 가 하루에 생성하는 리포트 수.
-  - 상한: `24 / MIN_INTERVAL_HOURS` (기본 6 → 최대 4 리포트/일/repo).
+  - 상한: 커밋 변화가 계속되면 기본 10분 poll 주기와 burst gate에 의해 repo별 자동 생성이 제한된다.
   - 실측: 활발한 프로젝트 2~3, 잔잔한 프로젝트 0~1 정도. 평균 1~2 로 잡으면 현실적.
 
 ### 6.2 운영상 주의
@@ -437,11 +436,11 @@ ChatGPT auth 를 유지하는 고급 패턴을 선택한다. `auth.json` 은 한
 
 ### 6.4 비용·쿼터 절감 레버
 
-- `MIN_INTERVAL_HOURS` 상향 → 같은 repo 재리뷰 빈도 감소 (호출 수 직접 감소).
+- `REPORT_RATE_COOLDOWN_HOURS` 상향 → burst 이후 같은 repo 자동 재리뷰 빈도 감소.
 - `MAX_DIFF_BYTES` / `MAX_DIFF_LINES` 하향 (`run-claude-review.sh` 기본 100KB
   / 3000 lines) → 호출당 토큰량 감소 (window 쿼터 소모 감소).
 - `.reviewignore` 로 비활성 프로젝트 상시 제외.
-- cron 주기를 `*/30` → `0 */2` 등으로 늘리면 Actions 자체 무료 분도 절약.
+- cron 주기를 `*/10` → `0 */2` 등으로 늘리면 Actions 자체 무료 분도 절약.
 
 ---
 

@@ -2,38 +2,39 @@
 #
 # check-needs-report.sh
 #
-# 주어진 repo 에 대해 지금 Codex 리뷰를 돌려야 하는지 판단한다.
-# CLAUDE.md "업데이트 정책" 의 3단계 게이트 (+ first-report 케이스) 구현.
+# Decide whether a target repo should get a Codex report now.
 #
-# 게이트 순서:
-#   a) reports/<repo>/.meta.json 이 없음            → should_run=true, first_report=true
-#   b) current_sha == last_sha                      → should_run=false
-#   c) (now - last_report_at) < MIN_INTERVAL_HOURS  → should_run=false
-#   d) last_sha..current_sha 커밋 수 < MIN_COMMITS  → should_run=false
-#   e) 전부 통과                                    → should_run=true
+# Gates:
+#   a) reports/<repo>/.meta.json is missing       -> should_run=true
+#   b) current_sha == last_sha                    -> should_run=false
+#   c) automatic burst limit is active            -> should_run=false
+#   d) any commit change                          -> should_run=true
 #
-# 출력 (GitHub Actions output 포맷, GITHUB_OUTPUT 또는 stdout):
+# Burst limit:
+#   If REPORT_RATE_MAX reports are published within REPORT_RATE_WINDOW_HOURS,
+#   automatic generation is blocked until REPORT_RATE_COOLDOWN_HOURS after the
+#   timestamp of the Nth report in that burst. Manual workflow runs with
+#   force=true bypass this script in generate-reports.yml.
+#
+# Output (GitHub Actions output format, or stdout):
 #   should_run=<true|false>
 #   current_sha=<sha>
 #   last_sha=<sha or "">
-#   commit_count=<int>
+#   commit_count=<int or ?>
 #   first_report=<true|false>
-#   reason=<human-readable 단서>   # 디버깅용
+#   reason=<human-readable summary>
 #
-# 인자:
-#   $1  repo name (예: Exit-or-Die_EEN)
+# Args:
+#   $1  repo name, e.g. Exit-or-die
 #
-# 환경 변수:
-#   ORG                 (필수)
-#   GH_TOKEN            (필수)
-#   MIN_INTERVAL_HOURS  (선택, 기본 6)
-#   MIN_COMMITS         (선택, 기본 2)
-#   REPORTS_DIR         (선택, 기본 "reports")  — 테스트 시 override
-#   GH_CMD              (선택, 기본 "gh")       — 테스트 시 mock 주입
-#
-# 사용 예:
-#   ORG=... GH_TOKEN=$(gh auth token) \
-#     bash scripts/check-needs-report.sh Exit-or-Die_EEN
+# Environment:
+#   ORG                         required GitHub org name
+#   GH_TOKEN                    required gh CLI token
+#   REPORTS_DIR                 optional, default "reports"
+#   GH_CMD                      optional, default "gh"
+#   REPORT_RATE_WINDOW_HOURS    optional, default 1
+#   REPORT_RATE_MAX             optional, default 5
+#   REPORT_RATE_COOLDOWN_HOURS  optional, default 3
 
 set -euo pipefail
 
@@ -41,25 +42,23 @@ REPO="${1:?usage: check-needs-report.sh <repo-name>}"
 
 : "${ORG:?ORG env required}"
 : "${GH_TOKEN:?GH_TOKEN env required}"
-MIN_INTERVAL_HOURS="${MIN_INTERVAL_HOURS:-6}"
-MIN_COMMITS="${MIN_COMMITS:-2}"
 REPORTS_DIR="${REPORTS_DIR:-reports}"
 GH_CMD="${GH_CMD:-gh}"
+REPORT_RATE_WINDOW_HOURS="${REPORT_RATE_WINDOW_HOURS:-1}"
+REPORT_RATE_MAX="${REPORT_RATE_MAX:-5}"
+REPORT_RATE_COOLDOWN_HOURS="${REPORT_RATE_COOLDOWN_HOURS:-3}"
 
 export GH_TOKEN
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# REPORTS_DIR 이 절대경로면 그대로, 상대경로면 ROOT_DIR 기준.
-# (테스트 하니스에서 /tmp/... 같은 절대경로를 주입할 수 있도록.)
 if [[ "$REPORTS_DIR" = /* ]]; then
-  META_FILE="$REPORTS_DIR/$REPO/.meta.json"
+  REPORT_REPO_DIR="$REPORTS_DIR/$REPO"
 else
-  META_FILE="$ROOT_DIR/$REPORTS_DIR/$REPO/.meta.json"
+  REPORT_REPO_DIR="$ROOT_DIR/$REPORTS_DIR/$REPO"
 fi
-
-# ---- helper: 결과 emit -----------------------------------------------------
+META_FILE="$REPORT_REPO_DIR/.meta.json"
 
 emit() {
   local should_run="$1" current_sha="$2" last_sha="$3"
@@ -79,11 +78,6 @@ emit() {
       fi
 }
 
-# ---- remote HEAD SHA 조회 --------------------------------------------------
-# default branch 먼저 조회 → 해당 branch HEAD SHA.
-# gh api 가 실패하면 (repo 접근 권한/존재 여부) 에러로 종료하되,
-# 워크플로우 레벨에서 한 repo 실패가 전체를 망치지 않도록 exit 2 구분.
-
 get_remote_head() {
   local default_branch
   default_branch="$(
@@ -99,77 +93,171 @@ get_remote_head() {
   }
 }
 
-# ---- Gate a: meta 파일 없음 → first report --------------------------------
+get_commit_count() {
+  local last_sha="$1" current_sha="$2"
+
+  "$GH_CMD" api "repos/$ORG/$REPO/compare/$last_sha...$current_sha" \
+    --jq '.total_commits' 2>/dev/null || echo ""
+}
+
+read_rate_limit_state() {
+  local meta_arg="$META_FILE"
+  local report_dir_arg="$REPORT_REPO_DIR"
+
+  if command -v cygpath >/dev/null 2>&1; then
+    meta_arg="$(cygpath -w "$META_FILE")"
+    report_dir_arg="$(cygpath -w "$REPORT_REPO_DIR")"
+  fi
+
+  python3 - "$meta_arg" "$report_dir_arg" \
+    "$REPORT_RATE_WINDOW_HOURS" "$REPORT_RATE_MAX" "$REPORT_RATE_COOLDOWN_HOURS" <<'PY'
+import json
+import re
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+meta_path = Path(sys.argv[1])
+report_dir = Path(sys.argv[2])
+window_hours = float(sys.argv[3])
+max_reports = int(sys.argv[4])
+cooldown_hours = float(sys.argv[5])
+
+now = datetime.now(timezone.utc)
+
+
+def to_utc(dt):
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).replace(microsecond=0)
+
+
+def parse_timestamp(raw):
+    if not raw:
+        return None
+
+    value = str(raw).strip()
+    if not value:
+        return None
+
+    if value.endswith(".md"):
+        value = Path(value).stem
+
+    match = re.match(r"^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z$", value)
+    if match:
+        date, hour, minute, second = match.groups()
+        return datetime.fromisoformat(
+            f"{date}T{hour}:{minute}:{second}+00:00"
+        ).astimezone(timezone.utc)
+
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        return to_utc(datetime.fromisoformat(normalized))
+    except ValueError:
+        return None
+
+
+timestamps = []
+
+try:
+    meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+except FileNotFoundError:
+    meta = {}
+except json.JSONDecodeError:
+    meta = {}
+
+for item in meta.get("recent_report_ats") or []:
+    parsed = parse_timestamp(item)
+    if parsed is not None:
+        timestamps.append(parsed)
+
+parsed = parse_timestamp(meta.get("last_report_at"))
+if parsed is not None:
+    timestamps.append(parsed)
+
+if report_dir.is_dir():
+    for path in report_dir.glob("*.md"):
+        parsed = parse_timestamp(path.name)
+        if parsed is not None:
+            timestamps.append(parsed)
+
+timestamps = sorted(set(timestamps))
+block_until = None
+burst_count = 0
+
+if max_reports > 0 and len(timestamps) >= max_reports:
+    window = timedelta(hours=window_hours)
+    cooldown = timedelta(hours=cooldown_hours)
+
+    for start_index in range(0, len(timestamps) - max_reports + 1):
+        first = timestamps[start_index]
+        nth = timestamps[start_index + max_reports - 1]
+        if nth - first <= window:
+            candidate_until = nth + cooldown
+            if now < candidate_until and (
+                block_until is None or candidate_until > block_until
+            ):
+                block_until = candidate_until
+                burst_count = sum(1 for ts in timestamps if first <= ts <= nth)
+
+if block_until is None:
+    print("blocked=false")
+    print("blocked_until=")
+    print("burst_count=0")
+else:
+    print("blocked=true")
+    print(f"blocked_until={block_until.isoformat(timespec='seconds')}")
+    print(f"burst_count={burst_count}")
+PY
+}
+
+CURRENT_SHA="$(get_remote_head)"
 
 if [[ ! -f "$META_FILE" ]]; then
-  CURRENT_SHA="$(get_remote_head)"
   emit "true" "$CURRENT_SHA" "" "0" "true" "first_report (no meta)"
   exit 0
 fi
 
 LAST_SHA="$(jq -r '.last_sha // ""' "$META_FILE")"
-LAST_REPORT_AT="$(jq -r '.last_report_at // ""' "$META_FILE")"
-
-# ---- Gate b: 원격 HEAD 가 last_sha 와 동일 → skip -------------------------
-
-CURRENT_SHA="$(get_remote_head)"
 
 if [[ "$CURRENT_SHA" == "$LAST_SHA" ]]; then
   emit "false" "$CURRENT_SHA" "$LAST_SHA" "0" "false" "no new commits"
   exit 0
 fi
 
-# ---- Gate c: 마지막 리포트 이후 MIN_INTERVAL_HOURS 미경과 → skip ----------
-
-if [[ -n "$LAST_REPORT_AT" ]]; then
-  HOURS_SINCE="$(
-    python3 - "$LAST_REPORT_AT" <<'PY'
-import sys
-from datetime import datetime, timezone
-last = sys.argv[1]
-# ISO 8601 with offset 또는 Z
-try:
-    dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
-except ValueError:
-    print("-1")
-    sys.exit(0)
-now = datetime.now(timezone.utc)
-delta = (now - dt).total_seconds() / 3600
-print(f"{delta:.2f}")
-PY
-  )"
-
-  # bc 는 CI 에 없을 수 있어 awk 로 비교
-  if awk -v a="$HOURS_SINCE" -v b="$MIN_INTERVAL_HOURS" 'BEGIN{exit !(a>=0 && a < b)}'; then
-    emit "false" "$CURRENT_SHA" "$LAST_SHA" "?" "false" \
-      "interval gate: ${HOURS_SINCE}h < ${MIN_INTERVAL_HOURS}h"
-    exit 0
-  fi
+COMMIT_COUNT="$(get_commit_count "$LAST_SHA" "$CURRENT_SHA")"
+COMPARE_FAILED=false
+if [[ -z "$COMMIT_COUNT" ]]; then
+  COMMIT_COUNT="0"
+  COMPARE_FAILED=true
 fi
 
-# ---- Gate d: last_sha..current_sha 커밋 수가 MIN_COMMITS 미만 → skip ------
-# GitHub compare API 의 total_commits 사용 (커밋 수만 알면 됨).
-# compare 는 last_sha 가 현재 tree 에 존재해야 함; force-push 등으로 사라졌으면
-# API 가 실패할 수 있다 → 이 경우 안전하게 should_run=true 로 fallback.
+RATE_BLOCKED=false
+RATE_BLOCKED_UNTIL=""
+RATE_BURST_COUNT=0
+RATE_OUTPUT="$(read_rate_limit_state)" || {
+  echo "ERROR: rate limit evaluator failed" >&2
+  exit 2
+}
+while IFS='=' read -r key value; do
+  case "$key" in
+    blocked) RATE_BLOCKED="$value" ;;
+    blocked_until) RATE_BLOCKED_UNTIL="$value" ;;
+    burst_count) RATE_BURST_COUNT="$value" ;;
+  esac
+done <<< "$RATE_OUTPUT"
 
-COMMIT_COUNT="$(
-  "$GH_CMD" api "repos/$ORG/$REPO/compare/$LAST_SHA...$CURRENT_SHA" \
-    --jq '.total_commits' 2>/dev/null || echo ""
-)"
+if [[ "$RATE_BLOCKED" == "true" ]]; then
+  emit "false" "$CURRENT_SHA" "$LAST_SHA" "$COMMIT_COUNT" "false" \
+    "rate_limit gate: ${RATE_BURST_COUNT} reports within ${REPORT_RATE_WINDOW_HOURS}h; blocked until ${RATE_BLOCKED_UNTIL} (manual force bypass)"
+  exit 0
+fi
 
-if [[ -z "$COMMIT_COUNT" ]]; then
-  emit "true" "$CURRENT_SHA" "$LAST_SHA" "0" "false" \
+if [[ "$COMPARE_FAILED" == "true" ]]; then
+  emit "true" "$CURRENT_SHA" "$LAST_SHA" "$COMMIT_COUNT" "false" \
     "compare api failed (force-push?), forcing should_run=true"
   exit 0
 fi
 
-if (( COMMIT_COUNT < MIN_COMMITS )); then
-  emit "false" "$CURRENT_SHA" "$LAST_SHA" "$COMMIT_COUNT" "false" \
-    "commit_count gate: $COMMIT_COUNT < $MIN_COMMITS"
-  exit 0
-fi
-
-# ---- Gate e: 통과 ----------------------------------------------------------
-
 emit "true" "$CURRENT_SHA" "$LAST_SHA" "$COMMIT_COUNT" "false" \
-  "all gates passed"
+  "commit change detected"

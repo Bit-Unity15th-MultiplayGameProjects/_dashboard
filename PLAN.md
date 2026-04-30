@@ -74,14 +74,13 @@ commit_range 가 `HEAD~30` / `HEAD` 같은 symbolic ref 를 포함하면 후속
 
 ---
 
-## Scenario 2 — 즉시 재실행 (쿨다운)
+## Scenario 2 — 즉시 재실행 (새 커밋 없음)
 
-**목적**: Scenario 1 직후, 같은 `$R` 에 대해 실행 시 `MIN_INTERVAL_HOURS=6` 게이트로
-skip 되는지.
+**목적**: Scenario 1 직후라도 SHA 가 같으면 `no new commits` 로 skip 되는지.
 
 **사전조건**:
 - Scenario 1 을 방금 끝낸 직후 (수 분 내).
-- `$R` 의 default branch 에 새 커밋은 있어도 되고 없어도 됨.
+- `$R` 의 default branch HEAD SHA 가 `.meta.json.last_sha` 와 동일.
 
 **실행**:
 
@@ -92,7 +91,7 @@ Actions → generate-reports → Run workflow → `target_repo=$R`, `force=false
 | 관측 지점 | 값 |
 |---|---|
 | `Check gates` output `should_run` | `false` |
-| `Check gates` output `reason` | `interval gate: <0.xx>h < 6h` (SHA 가 다른 경우) 또는 `no new commits` (SHA 동일) |
+| `Check gates` output `reason` | `no new commits` |
 | `Build prompt` / `Run Codex review` | skip (`if: should_run == 'true'` 로 건너뜀) |
 | 신규 커밋 | **없음** (reports/, .meta.json 모두 그대로) |
 
@@ -144,13 +143,13 @@ Actions → generate-reports → Run workflow → `target_repo=$R`, `force=false
 
 ---
 
-## Scenario 4 — 쿨다운 경과 + 새 커밋 없음
+## Scenario 4 — 새 커밋 감지
 
-**목적**: 시간만 지났다고 무작정 리뷰하지 않고 SHA 변화를 먼저 확인하는지.
+**목적**: 마지막 report 직후라도 SHA 가 바뀌면 1커밋이어도 report 를 생성하는지.
 
 **사전조건**:
-- Scenario 1 으로부터 `MIN_INTERVAL_HOURS` (기본 6h) 이상 경과.
-- `$R` 의 default branch HEAD SHA 가 `.meta.json.last_sha` 와 동일 (그 사이 커밋 없음).
+- Scenario 1 이후 `$R` default branch 에 새 커밋 1개 이상 push.
+- 최근 1시간 내 report 5회 burst 상태가 아님.
 
 **실행**: cron 자연 틱, 또는 Run workflow → `target_repo=$R`, `force=false`.
 
@@ -158,13 +157,11 @@ Actions → generate-reports → Run workflow → `target_repo=$R`, `force=false
 
 | 관측 | 값 |
 |---|---|
-| `should_run` | `false` |
-| `reason` | `no new commits` (Gate b 에서 바로 걸림) |
-| 리포트 생성 | 없음 |
+| `should_run` | `true` |
+| `reason` | `commit change detected` |
+| 리포트 생성 | `reports/$R/<ISO>.md` 생성 |
 
-**검증**: `check-needs-report.sh` 의 Gate b 가 cooldown 평가 *이전* 에 실행되는지
-확인. 스크립트 구조상 그렇다 (lines 117–120). 이 시나리오는 그 순서가 보장됨을
-확인하는 regression 용.
+**검증**: `MIN_COMMITS` 나 고정 시간 쿨다운 없이 SHA 변화만으로 생성되는지 확인.
 
 ---
 

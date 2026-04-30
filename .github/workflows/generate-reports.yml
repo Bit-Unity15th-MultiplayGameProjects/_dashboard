@@ -8,8 +8,8 @@ name: generate-reports
 
 on:
   schedule:
-    # 30 분마다 — 실제 Codex 호출은 게이트에서 걸러진다.
-    - cron: "*/30 * * * *"
+    # 10 minutes; actual Codex calls are gated per repo.
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       target_repo:
@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       force:
-        description: "쿨다운·커밋수 게이트 무시 (SHA 동일하면 여전히 skip)"
+        description: "자동 rate limit 무시 (SHA 동일하면 여전히 skip)"
         required: false
         type: boolean
         default: false
@@ -28,8 +28,9 @@ permissions:
 
 env:
   ORG: Bit-Unity15th-MultiplayGameProjects
-  MIN_INTERVAL_HOURS: "6"
-  MIN_COMMITS: "2"
+  REPORT_RATE_WINDOW_HOURS: "1"
+  REPORT_RATE_MAX: "5"
+  REPORT_RATE_COOLDOWN_HOURS: "3"
   PYTHONUTF8: "1"
   PYTHONIOENCODING: utf-8
 
@@ -169,7 +170,7 @@ jobs:
           set -euo pipefail
 
           if [[ "${FORCE:-false}" == "true" ]]; then
-            echo "[info] force=true — bypassing cooldown/commit-count gates" >&2
+            echo "[info] force=true - bypassing automatic report rate limit" >&2
 
             # force 라도 원격 HEAD SHA 는 조회해야 한다. SHA 가 last_sha 와 같으면
             # 의미 있는 diff 가 없으니 여전히 skip (자원·토큰 낭비 방지).
@@ -427,7 +428,18 @@ jobs:
             --argjson repo "$REPO_JSON" \
             --argjson facts "$FACTS_JSON" \
             '$prev
-              + {last_sha: $sha, last_report_at: $at, last_report_file: $file, report_count: $n}
+              + {
+                  last_sha: $sha,
+                  last_report_at: $at,
+                  last_report_file: $file,
+                  report_count: $n,
+                  recent_report_ats: (
+                    (($prev.recent_report_ats // []) + [$at])
+                    | unique
+                    | sort
+                    | if length > 200 then .[-200:] else . end
+                  )
+                }
               + $repo
               + $facts' \
             > "$META"

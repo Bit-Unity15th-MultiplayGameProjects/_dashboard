@@ -17,16 +17,16 @@ Bit-Unity15th-MultiplayGameProjects organization 내 프로젝트 repo들에 대
 - archived repo도 제외
 
 ## 업데이트 정책 (과다 호출 방지)
-cron으로 주기 체크하되, 4단계 게이트로 실제 Codex 호출을 제한:
+cron으로 주기 체크하되, 게이트로 실제 Codex 호출을 제한:
 1. Gate 1 (discovery): repo name이 `_` prefix면 skip. archived/`.reviewignore` 도 이 단계에서 제외.
 2. Gate 2 (check-needs-report): 마지막 리포트 이후 새 커밋 없으면 skip (SHA 비교)
-3. Gate 3 (check-needs-report): 마지막 리포트로부터 MIN_INTERVAL_HOURS 미경과 시 skip
-4. Gate 4 (check-needs-report): 새 커밋 수가 MIN_COMMITS 미만이면 skip
+3. Gate 3 (check-needs-report): 1시간 내 5회 report burst 이후 3시간 자동 생성 skip
 
 기본값:
-- cron: `*/30 * * * *` (30분마다 체크)
-- MIN_INTERVAL_HOURS: 6
-- MIN_COMMITS: 2
+- cron: `*/10 * * * *` (10분마다 체크)
+- REPORT_RATE_WINDOW_HOURS: 1
+- REPORT_RATE_MAX: 5
+- REPORT_RATE_COOLDOWN_HOURS: 3
 - 모두 workflow env로 override 가능
 
 ## 기술 스택
@@ -122,6 +122,7 @@ frontmatter 필드 (총 12):
 `reports/{repo}/.meta.json` 은 content collection 에서 제외되고 Astro 가 `node:fs`
 로 직접 읽는다 (`src/lib/reports.ts`의 `readProjectMeta`).
 - last_sha / last_report_at / last_report_file / report_count: 게이트·요약용
+- recent_report_ats: burst rate limit 계산용 최근 report 발행 시각
 - last_commit_at: default branch HEAD 의 commit 시각 (ISO 8601). 대시보드
   카드 우상단에 표기. 없으면 최신 리포트 `date` 로 fallback.
 - contributors: 프로젝트 전체 기여자 목록. 파이프라인은 `git shortlog -sn`
