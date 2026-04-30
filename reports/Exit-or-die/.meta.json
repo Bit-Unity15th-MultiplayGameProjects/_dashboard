@@ -1,9 +1,9 @@
 {
-  "last_sha": "6085536fe42f1ebd139ae4063ff23cbb4691c8de",
-  "last_report_at": "2026-04-30T05:24:03+00:00",
-  "last_report_file": "reports/Exit-or-die/2026-04-30T05-20-36Z.md",
-  "report_count": 5,
-  "last_commit_at": "2026-04-30T13:35:54+09:00",
+  "last_sha": "457e887e2ef842f3008a7ea4b4448fe14624caee",
+  "last_report_at": "2026-04-30T06:20:17+00:00",
+  "last_report_file": "reports/Exit-or-die/2026-04-30T06-17-31Z.md",
+  "report_count": 6,
+  "last_commit_at": "2026-04-30T15:13:10+09:00",
   "contributors": [
     "kimin",
     "김인"
@@ -13,6 +13,7 @@
   "repo_name": "Exit-or-die",
   "repo_node_id": "R_kgDOSLLdRA",
   "recent_report_ats": [
-    "2026-04-30T05:24:03+00:00"
+    "2026-04-30T05:24:03+00:00",
+    "2026-04-30T06:20:17+00:00"
   ]
 }
