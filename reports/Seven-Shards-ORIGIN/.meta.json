@@ -1,14 +1,17 @@
 {
-  "last_sha": "a453eb34b37096e3200d0235623db9e6ac7be15b",
-  "last_report_at": "2026-04-29T16:13:17+00:00",
-  "last_report_file": "reports/Seven-Shards-ORIGIN/2026-04-29T16-11-48Z.md",
-  "report_count": 7,
-  "last_commit_at": "2026-04-29T23:49:13+09:00",
+  "last_sha": "c5c29f600ac8fd6b6f0ab7872d4517ac998e7dab",
+  "last_report_at": "2026-04-30T06:22:43+00:00",
+  "last_report_file": "reports/Seven-Shards-ORIGIN/2026-04-30T06-21-19Z.md",
+  "report_count": 8,
+  "last_commit_at": "2026-04-30T14:47:33+09:00",
   "contributors": [
     "AKWLD"
   ],
   "repo_full_name": "Bit-Unity15th-MultiplayGameProjects/Seven-Shards-ORIGIN",
   "repo_id": 1216537484,
   "repo_name": "Seven-Shards-ORIGIN",
-  "repo_node_id": "R_kgDOSILjjA"
+  "repo_node_id": "R_kgDOSILjjA",
+  "recent_report_ats": [
+    "2026-04-30T06:22:43+00:00"
+  ]
 }
