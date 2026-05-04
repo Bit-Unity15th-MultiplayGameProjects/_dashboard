@@ -296,9 +296,45 @@ jobs:
       # Codex CLI: ChatGPT 구독 인증으로 stdin 프롬프트를 실행 → 파일로 저장.
       # 성공 전까진 reports/ 에 파일을 남기지 않도록 mktemp 사용.
       # ---------------------------------------------------------------------
-      - name: Install Codex CLI
+      - name: Ensure Codex CLI
         if: steps.gate.outputs.should_run == 'true'
-        run: npm i -g @openai/codex@latest
+        run: |
+          set -euo pipefail
+          CODEX_CMD="${CODEX_BIN:-codex}"
+          VERSION_OUT="$(mktemp)"
+
+          if "$CODEX_CMD" --version >"$VERSION_OUT" 2>&1; then
+            VERSION="$(head -n 1 "$VERSION_OUT")"
+            echo "[info] Codex CLI already available: $VERSION" >&2
+            rm -f "$VERSION_OUT"
+            exit 0
+          fi
+
+          echo "[info] Codex CLI unavailable; installing @openai/codex@latest" >&2
+          for attempt in 1 2 3; do
+            if npm i -g @openai/codex@latest; then
+              break
+            fi
+
+            if "$CODEX_CMD" --version >"$VERSION_OUT" 2>&1; then
+              VERSION="$(head -n 1 "$VERSION_OUT")"
+              echo "::warning::npm install failed, but existing Codex CLI is usable: $VERSION"
+              rm -f "$VERSION_OUT"
+              exit 0
+            fi
+
+            if [[ "$attempt" == "3" ]]; then
+              echo "::error::failed to install Codex CLI after 3 attempts"
+              rm -f "$VERSION_OUT"
+              exit 1
+            fi
+
+            echo "[warn] Codex CLI install failed on attempt $attempt; retrying" >&2
+            sleep $((attempt * 5))
+          done
+
+          "$CODEX_CMD" --version
+          rm -f "$VERSION_OUT"
 
       - name: Verify Codex ChatGPT auth
         if: steps.gate.outputs.should_run == 'true'
