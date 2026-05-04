@@ -17,7 +17,13 @@ GH_CMD="${GH_CMD:-gh}"
 
 export GH_TOKEN
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_PATH="$0"
+if [[ "$SCRIPT_PATH" == */* ]]; then
+  SCRIPT_DIR="${SCRIPT_PATH%/*}"
+else
+  SCRIPT_DIR="."
+fi
+SCRIPT_DIR="$(cd "$SCRIPT_DIR" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [[ "$REPORTS_DIR" = /* ]]; then
@@ -93,8 +99,8 @@ matches_current_repo() {
 
 shopt -s nullglob
 for meta in "$REPORTS_ROOT"/*/.meta.json; do
-  dir="$(dirname "$meta")"
-  name="$(basename "$dir")"
+  dir="${meta%/.meta.json}"
+  name="${dir##*/}"
   [[ "$name" == "$REPO" ]] && continue
 
   if matches_current_repo "$name" "$meta"; then
@@ -110,7 +116,7 @@ move_report_file() {
   local src="$1" old_name="$2"
   local base dest stem ext i
 
-  base="$(basename "$src")"
+  base="${src##*/}"
   dest="$target_dir/$base"
 
   if [[ -e "$dest" ]]; then
@@ -132,7 +138,7 @@ move_report_file() {
 }
 
 for old_dir in "${matched_dirs[@]}"; do
-  old_name="$(basename "$old_dir")"
+  old_name="${old_dir##*/}"
   if [[ ! -d "$old_dir" ]]; then
     continue
   fi
