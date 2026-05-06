@@ -19,7 +19,8 @@ const { rows } = Astro.props;
 ---
 
 <div
-  style="border:1px solid var(--border);border-radius:4px;overflow:hidden;background:var(--bg-1);"
+  class="project-table"
+  style="border:1px solid var(--border);border-radius:4px;overflow-x:auto;overflow-y:hidden;background:var(--bg-1);"
 >
   <div
     class="table-header"
@@ -90,6 +91,15 @@ const { rows } = Astro.props;
 </div>
 
 <style>
+  .project-table {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-header,
+  .table-row {
+    min-width: 900px;
+  }
+
   .table-row:hover {
     background: var(--bg-2);
   }

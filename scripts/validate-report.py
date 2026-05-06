@@ -2,11 +2,12 @@
 """리포트 frontmatter + body schema + secret 누출 validator.
 
 사용:
-    python3 scripts/validate-report.py <report.md> [--project REPO] [--strict]
+    python3 scripts/validate-report.py <report.md> [--project REPO] [--strict] [--new-report]
 
 --strict:
-    위반이 하나라도 있으면 exit 1. CI (generate-reports.yml) 에서 cell 을
-    실패시키는 용도.
+    위반이 하나라도 있으면 exit 1.
+--new-report:
+    신규 Codex 산출물 전용 규칙을 적용한다. 기존 리포트 호환 검증에는 붙이지 않는다.
 default (no --strict):
     exit 0 + stderr 에 경고만. test-prompt.sh 로컬 디버깅용.
 
@@ -16,16 +17,16 @@ default (no --strict):
   3. 필수 필드 11 개:
        project / date / commit_range / commit_count / risk_level / tags /
        summary / progress_estimate / doc_scores / todos / backlogs
-     (resolved_from_backlog 는 선택 — 해결 항목이 없으면 빈 배열 또는 생략)
+     (--new-report 에서는 resolved_from_backlog 도 필수)
   4. commit_range 가 Astro zod regex `^[0-9a-f]{7,40}\\.\\.[0-9a-f]{7,40}$` 와 일치
   5. risk_level ∈ {low, medium, high}
   6. date 가 ISO 8601 with offset
   7. progress_estimate 는 0-100 정수
   8. doc_scores.{design,technical,spec} 는 각각 0-10 정수
-  9. tags 는 문자열 배열. todos / backlogs / resolved_from_backlog 의 각 항목은
-     문자열 또는 `{title:str, files?:list[str], details?:str, priority?:str}` 객체.
-     details 는 120 자 이내, resolved_from_backlog 항목엔 금지.
-     priority ∈ {critical, high, medium, low}, resolved_from_backlog 항목엔 금지.
+  9. tags 는 3-6개 문자열 배열, summary 는 60자 이내.
+     (--new-report 에서는) todos 는 3-10개 객체 배열이며 priority 내림차순이어야 한다.
+     (--new-report 에서는) todos / backlogs 항목에는 priority 가 필수이고,
+     resolved_from_backlog 항목에는 details / priority 가 금지된다.
   10. (--project 지정 시) project 필드가 입력 repo 와 일치
   11. 본문 필수 6 개 섹션 헤딩. resolved_from_backlog 가 비어있지 않으면 § 7 도 필수
   12. content 어디에도 알려진 secret 패턴이 없어야 함 (OpenAI/Codex/Anthropic/GitHub 등)
@@ -84,6 +85,23 @@ REQUIRED_FIELDS: list[str] = [
     "progress_estimate", "doc_scores", "todos", "backlogs",
 ]
 
+NEW_REPORT_REQUIRED_FIELDS: list[str] = [
+    "resolved_from_backlog",
+]
+
+TAG_MIN = 3
+TAG_MAX = 6
+SUMMARY_MAX_CHARS = 60
+TODO_MIN = 3
+TODO_MAX = 10
+FILES_MAX = 4
+PRIORITY_ORDER: dict[str, int] = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+}
+
 COMMIT_RANGE_RE = re.compile(r"^[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}$", re.IGNORECASE)
 # ISO 8601 with offset: 2026-04-21T12:34:56Z 또는 2026-04-21T12:34:56+09:00 등
 ISO_8601_RE = re.compile(
@@ -124,7 +142,11 @@ def normalize(content: str) -> tuple[str, list[str]]:
     return content, fixes
 
 
-def validate(content: str, expected_project: str | None = None) -> list[str]:
+def validate(
+    content: str,
+    expected_project: str | None = None,
+    new_report: bool = False,
+) -> list[str]:
     errors: list[str] = []
 
     m = FRONTMATTER_RE.match(content)
@@ -147,7 +169,10 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
         return errors + ["frontmatter 가 YAML 객체가 아님 (top-level dict 필요)"]
 
     # 필수 필드 존재
-    for f in REQUIRED_FIELDS:
+    required_fields = REQUIRED_FIELDS + (
+        NEW_REPORT_REQUIRED_FIELDS if new_report else []
+    )
+    for f in required_fields:
         if f not in fm:
             errors.append(f"frontmatter 필드 누락: {f}")
 
@@ -174,6 +199,16 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
         if pj is not None and pj != expected_project:
             errors.append(
                 f"project 값이 입력과 불일치 (got: {pj!r}, expected: {expected_project!r})"
+            )
+
+    # summary 한 줄 요약
+    summary = fm.get("summary")
+    if summary is not None:
+        if not isinstance(summary, str) or not summary.strip():
+            errors.append(f"summary 는 비어있지 않은 문자열이어야 함 (got: {summary!r})")
+        elif len(summary) > SUMMARY_MAX_CHARS:
+            errors.append(
+                f"summary 길이 초과 ({len(summary)}자, 한도 {SUMMARY_MAX_CHARS})"
             )
 
     # commit_count 정수
@@ -208,13 +243,18 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
         if not isinstance(v, list):
             errors.append(f"tags 는 배열이어야 함 (got: {type(v).__name__})")
         else:
+            if not (TAG_MIN <= len(v) <= TAG_MAX):
+                errors.append(
+                    f"tags 개수 오류 ({len(v)}개, 기준 {TAG_MIN}-{TAG_MAX}개)"
+                )
             for i, item in enumerate(v):
-                if not isinstance(item, str):
+                if not isinstance(item, str) or not item.strip():
                     errors.append(
-                        f"tags[{i}] 는 문자열이어야 함 (got: {type(item).__name__})"
+                        f"tags[{i}] 는 비어있지 않은 문자열이어야 함 "
+                        f"(got: {type(item).__name__})"
                     )
 
-    # todos / backlogs / resolved_from_backlog — 각 항목은 str 또는 {title, files?}
+    # todos / backlogs / resolved_from_backlog — 신규 리포트는 객체 항목만 허용.
     for arr_field in ("todos", "backlogs", "resolved_from_backlog"):
         if arr_field in fm:
             v = fm[arr_field]
@@ -223,16 +263,36 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
                     f"{arr_field} 는 배열이어야 함 (got: {type(v).__name__})"
                 )
                 continue
+            if (
+                new_report
+                and arr_field == "todos"
+                and not (TODO_MIN <= len(v) <= TODO_MAX)
+            ):
+                errors.append(
+                    f"todos 개수 오류 ({len(v)}개, 기준 {TODO_MIN}-{TODO_MAX}개)"
+                )
+            last_todo_priority_rank = -1
             for i, item in enumerate(v):
                 if isinstance(item, str):
                     if not item.strip():
                         errors.append(f"{arr_field}[{i}] 가 빈 문자열")
+                    if new_report:
+                        errors.append(
+                            f"{arr_field}[{i}] 는 객체여야 함 "
+                            "(신규 리포트는 title/priority/files/details 형식)"
+                        )
                 elif isinstance(item, dict):
                     title = item.get("title")
                     if not isinstance(title, str) or not title.strip():
                         errors.append(
                             f"{arr_field}[{i}].title 누락 또는 비문자열"
                         )
+                    if (
+                        new_report
+                        and arr_field in {"todos", "backlogs"}
+                        and "priority" not in item
+                    ):
+                        errors.append(f"{arr_field}[{i}].priority 누락")
                     if "files" in item:
                         files = item["files"]
                         if not isinstance(files, list):
@@ -241,10 +301,18 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
                                 f"(got: {type(files).__name__})"
                             )
                         else:
+                            if new_report and not (1 <= len(files) <= FILES_MAX):
+                                errors.append(
+                                    f"{arr_field}[{i}].files 개수 오류 "
+                                    f"({len(files)}개, 기준 1-{FILES_MAX}개)"
+                                )
                             for j, fp in enumerate(files):
-                                if not isinstance(fp, str):
+                                if not isinstance(fp, str) or (
+                                    new_report and not fp.strip()
+                                ):
                                     errors.append(
-                                        f"{arr_field}[{i}].files[{j}] 는 문자열이어야 함"
+                                        f"{arr_field}[{i}].files[{j}] 는 "
+                                        "비어있지 않은 문자열이어야 함"
                                     )
                     if "details" in item:
                         details = item["details"]
@@ -265,11 +333,19 @@ def validate(content: str, expected_project: str | None = None) -> list[str]:
                             )
                     if "priority" in item:
                         prio = item["priority"]
-                        if prio not in {"critical", "high", "medium", "low"}:
+                        if prio not in PRIORITY_ORDER:
                             errors.append(
                                 f"{arr_field}[{i}].priority 값 오류 "
                                 f"(got: {prio!r}, 기대: critical/high/medium/low)"
                             )
+                        elif new_report and arr_field == "todos":
+                            rank = PRIORITY_ORDER[prio]
+                            if rank < last_todo_priority_rank:
+                                errors.append(
+                                    "todos priority 정렬 오류 "
+                                    "(critical → high → medium → low 순서여야 함)"
+                                )
+                            last_todo_priority_rank = rank
                         # resolved 항목엔 priority 금지 (이미 끝난 일이라 의미 없음).
                         if arr_field == "resolved_from_backlog":
                             errors.append(
@@ -315,6 +391,8 @@ def main() -> int:
                     help="기대되는 project 값 (입력 repo 이름)")
     ap.add_argument("--strict", action="store_true",
                     help="위반 시 exit 1 (기본: exit 0 + 경고만)")
+    ap.add_argument("--new-report", action="store_true",
+                    help="신규 Codex 산출물 전용 Item/필수 필드 규칙 적용")
     args = ap.parse_args()
 
     try:
@@ -338,7 +416,7 @@ def main() -> int:
         for f in fixes:
             print(f"  - {f}", file=sys.stderr)
 
-    errors = validate(content, args.project)
+    errors = validate(content, args.project, new_report=args.new_report)
     if errors:
         print("[validate-report] SCHEMA ISSUES:", file=sys.stderr)
         for e in errors:

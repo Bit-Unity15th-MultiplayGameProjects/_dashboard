@@ -61,18 +61,18 @@ const cards = projects.map((p) => ({
   <Header>
     <div
       slot="left"
-      style="display:flex;align-items:center;gap:10px;font-family:var(--sans);"
+      style="display:flex;align-items:center;gap:10px;font-family:var(--sans);min-width:0;"
     >
       <Logo />
       <span
-        style="font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-1);"
+        style="font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-1);white-space:nowrap;"
         >Bit-Unity15th</span
       >
       <span style="color:var(--fg-3);font-size:13px;">/</span>
-      <span style="font-size:13px;color:var(--fg-2);">dashboard</span>
+      <span style="font-size:13px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">dashboard</span>
     </div>
     <Fragment slot="right">
-      <span>Last build · {buildTime}</span>
+      <span data-header-secondary>Last build · {buildTime}</span>
       <span
         style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:3px;"
       >

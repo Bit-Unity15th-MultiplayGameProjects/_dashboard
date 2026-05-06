@@ -91,7 +91,7 @@ function formatDateShort(iso: string) {
   <Header>
     <div
       slot="left"
-      style="display:flex;align-items:center;font-family:var(--sans);"
+      style="display:flex;align-items:center;font-family:var(--sans);min-width:0;flex:1;"
     >
       <a
         href={BASE}
@@ -101,13 +101,13 @@ function formatDateShort(iso: string) {
       </a>
       <span style="color:var(--fg-3);font-size:13px;margin:0 4px;">/</span>
       <span
-        style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-1);"
+        style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
         >{project}</span
       >
     </div>
     <Fragment slot="right">
       <RiskBadge level={latestData.risk_level} size="md" />
-      <span>{reports.length} reports</span>
+      <span data-header-secondary>{reports.length} reports</span>
     </Fragment>
   </Header>
 
@@ -460,6 +460,7 @@ function formatDateShort(iso: string) {
         </span>
       </div>
       <div
+        class="timeline-list"
         style="border:1px solid var(--border);border-radius:4px;background:var(--bg-1);overflow:hidden;"
       >
         {
@@ -472,7 +473,7 @@ function formatDateShort(iso: string) {
                 class="timeline-row"
                 style={`display:grid;grid-template-columns:170px 64px 100px 1fr 70px 24px;gap:14px;align-items:center;padding:14px 16px;border-bottom:${i < reports.length - 1 ? "1px solid var(--border)" : "none"};text-decoration:none;color:inherit;font-family:var(--sans);transition:background .12s;`}
               >
-                <span style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;">
+                <span class="timeline-date" style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;">
                   {formatDateShort(d.date)}
                   {isLatest && (
                     <span
@@ -482,17 +483,19 @@ function formatDateShort(iso: string) {
                     </span>
                   )}
                 </span>
-                <RiskBadge level={d.risk_level} />
-                <span style="font-family:var(--mono);font-size:11px;color:var(--fg-2);">
+                <span class="timeline-risk">
+                  <RiskBadge level={d.risk_level} />
+                </span>
+                <span class="timeline-commits" style="font-family:var(--mono);font-size:11px;color:var(--fg-2);">
                   {d.commit_count} commits
                 </span>
-                <span style="font-size:12.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                <span class="timeline-summary" style="font-size:12.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                   {d.summary}
                 </span>
-                <span style="font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;">
+                <span class="timeline-progress" style="font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;">
                   {d.progress_estimate}%
                 </span>
-                <span style="color:var(--fg-3);">→</span>
+                <span class="timeline-arrow" style="color:var(--fg-3);">→</span>
               </a>
             );
           })

@@ -322,7 +322,7 @@ fi
 
 # 출력 스키마 + secret 정합성 체크. 로컬 디버깅용이므로 실패해도 출력은
 # 그대로 stdout 으로 내보내고 --strict 는 붙이지 않는다.
-# 동일 validator 가 generate-reports.yml 에서는 --strict 로 cell 을 실패시킨다.
-python3 "$SCRIPT_DIR/validate-report.py" "$TMP_OUT" --project "$PROJECT_NAME" || true
+# 동일 validator 가 generate-reports.yml 에서는 --strict --new-report 로 cell 을 실패시킨다.
+python3 "$SCRIPT_DIR/validate-report.py" "$TMP_OUT" --project "$PROJECT_NAME" --new-report || true
 
 cat "$TMP_OUT"
