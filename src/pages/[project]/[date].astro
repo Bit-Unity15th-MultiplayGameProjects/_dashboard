@@ -8,6 +8,8 @@ import RiskBadge from "../../components/RiskBadge.astro";
 import ProgressPanel from "../../components/ProgressPanel.astro";
 import {
   getProjectSummaries,
+  lastReportAt,
+  reportUpdatedAt,
   type ReportInfo,
   type ProjectSummary,
 } from "../../lib/reports";
@@ -44,6 +46,8 @@ interface Props {
 const { summary, current, currentIdx } = Astro.props;
 const entry = current.entry;
 const data = entry.data;
+const currentReportAt =
+  currentIdx === 0 ? lastReportAt(summary) : reportUpdatedAt(current);
 const { Content } = await render(entry);
 
 const BASE = import.meta.env.BASE_URL;
@@ -68,10 +72,13 @@ function formatDate(iso: string) {
   });
 }
 function formatDateShort(iso: string) {
-  return new globalThis.Date(iso).toLocaleDateString("ko-KR", {
+  return new globalThis.Date(iso).toLocaleString("ko-KR", {
     timeZone: "Asia/Seoul",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 function reportHref(slug: string) {
@@ -154,7 +161,7 @@ const deltaColor =
         <span
           style="font-family:var(--mono);font-size:11px;color:var(--fg-3);margin-left:auto;"
         >
-          {formatDate(data.date)}
+          {formatDate(currentReportAt)}
         </span>
       </div>
     </section>
@@ -163,7 +170,7 @@ const deltaColor =
       <ProgressPanel
         progress={data.progress_estimate}
         scores={data.doc_scores}
-        updatedAt={data.date}
+        updatedAt={currentReportAt}
       />
     </section>
 
@@ -212,6 +219,7 @@ const deltaColor =
           summary.reports.map((r, i) => {
             const d = r.entry.data;
             const isCurrent = r.slug === current.slug;
+            const updatedAt = reportUpdatedAt(r);
             return (
               <a
                 href={isCurrent ? undefined : reportHref(r.slug)}
@@ -219,14 +227,19 @@ const deltaColor =
                 class="timeline-row"
                 style={`display:grid;grid-template-columns:170px 64px 90px 1fr 70px 24px;gap:12px;align-items:center;padding:12px 14px;border-bottom:${i < summary.reports.length - 1 ? "1px solid var(--border)" : "none"};text-decoration:none;color:inherit;font-family:var(--sans);transition:background .12s;background:${isCurrent ? "var(--bg-2)" : "transparent"};cursor:${isCurrent ? "default" : "pointer"};pointer-events:${isCurrent ? "none" : "auto"};`}
               >
-                <span class="timeline-date" style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;">
-                  {formatDateShort(d.date)}
+                <time
+                  datetime={updatedAt}
+                  title={formatDate(updatedAt)}
+                  class="timeline-date"
+                  style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;"
+                >
+                  {formatDateShort(updatedAt)}
                   {isCurrent && (
                     <span style="margin-left:6px;padding:1px 5px;background:var(--accent);color:var(--accent-fg);font-size:9px;border-radius:2px;font-weight:600;white-space:nowrap;">
                       CURRENT
                     </span>
                   )}
-                </span>
+                </time>
                 <span class="timeline-risk">
                   <RiskBadge level={d.risk_level} />
                 </span>

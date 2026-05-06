@@ -86,8 +86,8 @@ export async function getAllReports(): Promise<ReportInfo[]> {
 export function sortByDateDesc(reports: ReportInfo[]): ReportInfo[] {
   return [...reports].sort(
     (a, b) =>
-      new Date(b.entry.data.date).getTime() -
-      new Date(a.entry.data.date).getTime(),
+      new Date(reportUpdatedAt(b)).getTime() -
+      new Date(reportUpdatedAt(a)).getTime(),
   );
 }
 
@@ -115,14 +115,34 @@ export async function getProjectSummaries(): Promise<ProjectSummary[]> {
   }
   return summaries.sort(
     (a, b) =>
-      new Date(b.latest.entry.data.date).getTime() -
-      new Date(a.latest.entry.data.date).getTime(),
+      new Date(reportUpdatedAt(b.latest)).getTime() -
+      new Date(reportUpdatedAt(a.latest)).getTime(),
   );
 }
 
-/** 마지막 커밋 시각. meta 에 없으면 최신 리포트 `date` 로 fallback. */
+/** Parse the report filename timestamp, e.g. 2026-05-04T07-22-41Z. */
+function reportUpdatedAtFromSlug(slug: string): string | null {
+  const direct = new Date(slug);
+  if (!Number.isNaN(direct.getTime())) return slug;
+
+  const m = slug.match(
+    /^(\d{4}-\d{2}-\d{2})[Tt](\d{2})-(\d{2})-(\d{2})([Zz])$/,
+  );
+  if (!m) return null;
+  return `${m[1]}T${m[2]}:${m[3]}:${m[4]}${m[5].toUpperCase()}`;
+}
+
+export function reportUpdatedAt(r: ReportInfo): string {
+  return reportUpdatedAtFromSlug(r.slug) ?? r.entry.data.date;
+}
+
+export function lastReportAt(p: ProjectSummary): string {
+  return p.meta.last_report_at ?? reportUpdatedAt(p.latest);
+}
+
+/** Latest default-branch commit time. Falls back to the latest report date. */
 export function lastCommitAt(p: ProjectSummary): string {
-  return p.meta.last_commit_at ?? p.latest.entry.data.date;
+  return p.meta.last_commit_at ?? reportUpdatedAt(p.latest);
 }
 
 // ─── derived shapes for the new design ────────────────────────────────
@@ -145,9 +165,10 @@ export interface ChartSnapshot {
 export function chronologicalSnapshots(p: ProjectSummary): ChartSnapshot[] {
   return [...p.reports].reverse().map((r) => {
     const d = r.entry.data;
+    const updatedAt = reportUpdatedAt(r);
     return {
-      date: new Date(d.date).toISOString().slice(0, 10),
-      isoDate: d.date,
+      date: new Date(updatedAt).toISOString().slice(0, 10),
+      isoDate: updatedAt,
       progress: d.progress_estimate,
       design: d.doc_scores.design,
       technical: d.doc_scores.technical,
@@ -232,12 +253,12 @@ export function backlogWithAges(p: ProjectSummary): BacklogItemWithAge[] {
   const latestBacklogs = normalizeItems(latest.entry.data.backlogs);
 
   return latestBacklogs.map((item) => {
-    let firstSeen = latest.entry.data.date;
+    let firstSeen = reportUpdatedAt(latest);
     let age = 0;
     for (const r of chrono) {
       const titles = normalizeItems(r.entry.data.backlogs).map((b) => b.title);
       if (titles.includes(item.title)) {
-        if (age === 0) firstSeen = r.entry.data.date;
+        if (age === 0) firstSeen = reportUpdatedAt(r);
         age += 1;
       }
     }
@@ -262,7 +283,7 @@ export function resolvedHistory(p: ProjectSummary): ResolvedItem[] {
   for (const r of chrono) {
     for (const b of normalizeItems(r.entry.data.backlogs)) {
       if (!firstSeenByTitle.has(b.title)) {
-        firstSeenByTitle.set(b.title, r.entry.data.date);
+        firstSeenByTitle.set(b.title, reportUpdatedAt(r));
       }
     }
   }
@@ -273,8 +294,8 @@ export function resolvedHistory(p: ProjectSummary): ResolvedItem[] {
     for (const item of items) {
       out.push({
         ...item,
-        resolvedDate: r.entry.data.date,
-        firstSeen: firstSeenByTitle.get(item.title) ?? r.entry.data.date,
+        resolvedDate: reportUpdatedAt(r),
+        firstSeen: firstSeenByTitle.get(item.title) ?? reportUpdatedAt(r),
       });
     }
   }
@@ -293,7 +314,7 @@ export interface BacklogSnapshot {
 }
 export function backlogTimeline(p: ProjectSummary): BacklogSnapshot[] {
   return p.reports.map((r) => ({
-    date: r.entry.data.date,
+    date: reportUpdatedAt(r),
     slug: r.slug,
     summary: r.entry.data.summary,
     backlogs: normalizeItems(r.entry.data.backlogs),
