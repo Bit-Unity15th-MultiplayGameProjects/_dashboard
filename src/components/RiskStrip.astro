@@ -1,27 +1,113 @@
 ---
 /**
- * 리포트별 risk 를 작은 사각형 dot 로 나열. 마지막 dot 는 강조.
+ * 전체 risk history 를 고정 폭 분포 막대로 요약한다.
+ * 예전 방식처럼 리포트 수만큼 사각형을 늘어놓으면 수백 개 리포트에서
+ * 카드 폭을 잡아먹으므로, low/medium/high 비율 + latest marker 만 보여준다.
  */
 type Risk = "low" | "medium" | "high";
 interface Props {
   risks: Risk[];
+  width?: number;
 }
-const { risks } = Astro.props;
+const { risks, width = 96 } = Astro.props;
 
 const dotColor = {
   low: "var(--risk-low)",
   medium: "var(--risk-med)",
   high: "var(--risk-high)",
 } as const;
+
+const labels = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+} as const;
+
+const total = risks.length;
+const latest = risks[risks.length - 1];
+const counts = {
+  low: risks.filter((r) => r === "low").length,
+  medium: risks.filter((r) => r === "medium").length,
+  high: risks.filter((r) => r === "high").length,
+};
+const segments = (["low", "medium", "high"] as Risk[])
+  .map((level) => ({ level, count: counts[level] }))
+  .filter((segment) => segment.count > 0);
+const label =
+  total === 0
+    ? "risk history 없음"
+    : `${total} reports · latest ${labels[latest ?? "low"]} · low ${counts.low}, medium ${counts.medium}, high ${counts.high}`;
 ---
 
-<div style="display:flex;gap:4px;align-items:center;">
+<div
+  class="risk-strip"
+  role="img"
+  aria-label={label}
+  title={label}
+  style={`--risk-strip-width:${width}px;`}
+>
+  <div class="risk-strip__bar">
+    {
+      segments.length === 0 ? (
+        <span class="risk-strip__empty"></span>
+      ) : (
+        segments.map((segment) => (
+          <span
+            class="risk-strip__segment"
+            style={`flex:${segment.count} 1 0;background:${dotColor[segment.level]};`}
+          ></span>
+        ))
+      )
+    }
+  </div>
   {
-    risks.map((r, i) => (
-      <div
-        title={r}
-        style={`width:10px;height:10px;border-radius:2px;background:${dotColor[r]};opacity:${i === risks.length - 1 ? 1 : 0.6};${i === risks.length - 1 ? "border:1px solid var(--fg-1);" : ""}`}
-      />
-    ))
+    latest && (
+      <span
+        class="risk-strip__latest"
+        style={`background:${dotColor[latest]};`}
+      ></span>
+    )
   }
 </div>
+
+<style>
+  .risk-strip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .risk-strip__bar {
+    display: flex;
+    width: var(--risk-strip-width);
+    height: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-2);
+  }
+
+  .risk-strip__segment {
+    min-width: 6px;
+    opacity: 0.86;
+  }
+
+  .risk-strip__segment + .risk-strip__segment {
+    border-left: 1px solid color-mix(in oklch, var(--bg-1) 65%, transparent);
+  }
+
+  .risk-strip__empty {
+    flex: 1;
+    background: var(--bar-bg);
+  }
+
+  .risk-strip__latest {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 auto;
+    border: 1px solid var(--fg-1);
+    border-radius: 2px;
+    box-shadow: 0 0 0 2px var(--bg-1);
+  }
+</style>

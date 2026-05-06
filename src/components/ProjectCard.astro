@@ -4,7 +4,7 @@ import RiskStrip from "./RiskStrip.astro";
 import Sparkline from "./Sparkline.astro";
 import ProgressBar from "./ProgressBar.astro";
 import Tag from "./Tag.astro";
-import type { ChartSnapshot, Risk } from "../lib/reports";
+import type { ChartSnapshot, ManagementSignal, Risk } from "../lib/reports";
 
 interface Props {
   project: string;
@@ -15,9 +15,10 @@ interface Props {
   snapshots: ChartSnapshot[]; // chronological (oldest first)
   lastCommitAt: string; // ISO 8601 — meta.last_commit_at 또는 latest report date
   lastReportAt: string; // ISO 8601 — meta.last_report_at 또는 latest report filename
+  signal: ManagementSignal;
 }
 
-const { project, href, summary, risk, tags, snapshots, lastCommitAt, lastReportAt } =
+const { project, href, summary, risk, tags, snapshots, lastCommitAt, lastReportAt, signal } =
   Astro.props;
 
 // 빌드 시점 스냅샷이라 "3시간 전" 같은 relative 는 배포 후 stale 해진다.
@@ -42,6 +43,16 @@ const reportFull = reportDate.toLocaleString("ko-KR", {
   dateStyle: "medium",
   timeStyle: "medium",
 });
+const reportAgeDays = Math.max(
+  0,
+  Math.floor((Date.now() - reportDate.getTime()) / 86_400_000),
+);
+const freshness =
+  reportAgeDays >= 10
+    ? { label: "STALE", tone: "var(--risk-high)", title: `${reportAgeDays}일 전 리포트` }
+    : reportAgeDays >= 5
+      ? { label: "QUIET", tone: "var(--risk-med)", title: `${reportAgeDays}일 전 리포트` }
+      : { label: "FRESH", tone: "var(--risk-low)", title: `${reportAgeDays}일 전 리포트` };
 
 const first = snapshots[0];
 const last = snapshots[snapshots.length - 1];
@@ -52,6 +63,18 @@ const deltaColor =
   delta > 0 ? "var(--risk-low)" : delta < 0 ? "var(--risk-high)" : "var(--fg-3)";
 const deltaLabel =
   delta > 0 ? `+${delta}` : delta === 0 ? "—" : String(delta);
+
+const p1Open = signal.criticalOpen + signal.highOpen;
+const reportAgeLabel =
+  signal.reportAgeDays <= 0 ? "today" : `${signal.reportAgeDays}d`;
+const oldestBacklogLabel =
+  signal.oldestBacklogAge > 0 ? `${signal.oldestBacklogAge}R` : "—";
+const riskColor =
+  risk === "high"
+    ? "var(--risk-high)"
+    : risk === "medium"
+      ? "var(--risk-med)"
+      : "var(--risk-low)";
 ---
 
 <a
@@ -60,12 +83,12 @@ const deltaLabel =
   data-card
   data-chat-project={project}
   class="project-card"
-  style="display:flex;flex-direction:column;gap:12px;text-decoration:none;color:inherit;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);padding:16px 18px 14px;font-family:var(--sans);transition:border-color .12s, box-shadow .12s;"
+  style={`--project-risk:${riskColor};display:flex;flex-direction:column;gap:0;text-decoration:none;color:inherit;border:1px solid var(--border);border-left:3px solid var(--project-risk);border-radius:4px;background:var(--bg-1);padding:0;font-family:var(--sans);transition:border-color .12s, box-shadow .12s;overflow:hidden;`}
 >
-  <div style="display:flex;align-items:flex-start;gap:10px;">
+  <div class="project-card__header">
     <div style="flex:1;min-width:0;">
       <div
-        style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;"
+        style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;"
       >
         <span
           style="font-family:var(--mono);font-size:14px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-1);"
@@ -73,6 +96,12 @@ const deltaLabel =
           {project}
         </span>
         <RiskBadge level={risk} />
+        <span
+          title={freshness.title}
+          style={`display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid color-mix(in oklch, ${freshness.tone} 40%, var(--border));border-radius:3px;color:${freshness.tone};font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.07em;background:color-mix(in oklch, ${freshness.tone} 8%, var(--bg-1));`}
+        >
+          {freshness.label}
+        </span>
         <span class="project-card__chat-unread" data-chat-unread-badge hidden>
           <span aria-hidden="true"></span>
           새 메시지
@@ -94,9 +123,7 @@ const deltaLabel =
     </time>
   </div>
 
-  <div
-    style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;"
-  >
+  <div class="project-card__progress">
     <div>
       <div
         style="display:flex;align-items:baseline;gap:6px;margin-bottom:5px;flex-wrap:wrap;"
@@ -125,13 +152,34 @@ const deltaLabel =
     {snapshots.length >= 2 && <Sparkline values={progressSeries} width={110} height={34} />}
   </div>
 
-  <div
-    style="display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;"
-  >
+  <div class="project-card__ops" aria-label="project operating metrics">
+    <div class:list={["project-card__op", p1Open > 0 && "is-hot"]} title="critical/high TODO와 backlog 합계">
+      <span>P1+</span>
+      <strong>{p1Open}</strong>
+    </div>
+    <div class="project-card__op" title="최신 리포트의 미해결 backlog 수">
+      <span>backlog</span>
+      <strong>{signal.backlogCount}</strong>
+    </div>
+    <div class:list={["project-card__op", signal.oldestBacklogAge >= 5 && "is-aging"]} title={signal.oldestBacklogTitle ? `oldest · ${signal.oldestBacklogTitle}` : "이월 backlog 없음"}>
+      <span>oldest</span>
+      <strong>{oldestBacklogLabel}</strong>
+    </div>
+    <div class:list={["project-card__op", signal.docAverage < 4 && "is-aging"]} title="design / technical / spec 평균">
+      <span>docs</span>
+      <strong>{signal.docAverage}/10</strong>
+    </div>
+    <div class:list={["project-card__op", signal.reportAgeDays >= 5 && "is-aging"]} title={`latest report · ${reportFull}`}>
+      <span>report</span>
+      <strong>{reportAgeLabel}</strong>
+    </div>
+  </div>
+
+  <div class="project-card__footer">
     <div style="display:flex;align-items:center;gap:8px;">
       <span
         style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.06em;text-transform:uppercase;"
-        >risk · {snapshots.length}R</span
+        >risk mix · {snapshots.length}R</span
       >
       <RiskStrip risks={risks} />
     </div>
@@ -147,6 +195,93 @@ const deltaLabel =
     box-shadow:
       0 4px 12px rgba(0, 0, 0, 0.06),
       0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  .project-card__header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 15px 17px 13px;
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in oklch, var(--project-risk) 8%, transparent),
+        transparent 55%
+      ),
+      var(--bg-1);
+  }
+
+  .project-card__progress {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 17px;
+    border-top: 1px solid var(--border-subtle);
+    background: color-mix(in oklch, var(--bg-2) 42%, var(--bg-1));
+  }
+
+  .project-card__ops {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-1);
+  }
+
+  .project-card__op {
+    min-width: 0;
+    padding: 9px 10px;
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .project-card__op:last-child {
+    border-right: none;
+  }
+
+  .project-card__op.is-hot {
+    background: color-mix(in oklch, var(--risk-high) 8%, transparent);
+  }
+
+  .project-card__op.is-hot strong {
+    color: var(--risk-high);
+  }
+
+  .project-card__op.is-aging strong {
+    color: var(--risk-med);
+  }
+
+  .project-card__ops span,
+  .project-card__ops strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+  }
+
+  .project-card__ops span {
+    color: var(--fg-3);
+    font-size: 9px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .project-card__ops strong {
+    margin-top: 2px;
+    color: var(--fg-1);
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  .project-card__footer {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    padding: 11px 17px 13px;
+    background: var(--bg-1);
   }
 
   .project-card[data-chat-unread="true"] {
@@ -193,6 +328,20 @@ const deltaLabel =
     }
     100% {
       box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .project-card__ops {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .project-card__op:nth-child(3) {
+      border-right: none;
+    }
+
+    .project-card__op:nth-child(n + 4) {
+      border-top: 1px solid var(--border-subtle);
     }
   }
 </style>

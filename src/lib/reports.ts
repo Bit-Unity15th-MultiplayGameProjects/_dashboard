@@ -345,3 +345,119 @@ export function progressPhase(p: number): string {
   if (p < 85) return "완성도 향상";
   return "출시 준비";
 }
+
+export type AttentionLevel = "urgent" | "watch" | "steady";
+
+export interface ManagementSignal {
+  project: string;
+  risk: Risk;
+  summary: string;
+  progress: number;
+  progressDelta: number;
+  docAverage: number;
+  docDelta: number;
+  reportCount: number;
+  todoCount: number;
+  backlogCount: number;
+  resolvedCount: number;
+  criticalOpen: number;
+  highOpen: number;
+  oldestBacklogAge: number;
+  oldestBacklogTitle?: string;
+  lastReportAt: string;
+  lastCommitAt: string;
+  reportAgeDays: number;
+  commitAgeDays: number;
+  attention: AttentionLevel;
+  score: number;
+  reasons: string[];
+}
+
+function daysSince(iso: string): number {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 0;
+  return Math.max(0, Math.floor((Date.now() - then) / 86_400_000));
+}
+
+function docAverageFromSnapshot(s: ChartSnapshot): number {
+  return (s.design + s.technical + s.spec) / 3;
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+export function managementSignal(p: ProjectSummary): ManagementSignal {
+  const snapshots = chronologicalSnapshots(p);
+  const first = snapshots[0]!;
+  const latest = snapshots[snapshots.length - 1]!;
+  const latestData = p.latest.entry.data;
+  const todos = normalizeItems(latestData.todos);
+  const backlogs = backlogWithAges(p);
+  const resolved = resolvedHistory(p);
+  const openItems = [...todos, ...backlogs];
+  const criticalOpen = openItems.filter((item) => item.priority === "critical").length;
+  const highOpen = openItems.filter((item) => item.priority === "high").length;
+  const oldest = backlogs.reduce<BacklogItemWithAge | undefined>(
+    (best, item) => (!best || item.age > best.age ? item : best),
+    undefined,
+  );
+  const latestReportAt = lastReportAt(p);
+  const latestCommitAt = lastCommitAt(p);
+  const reportAgeDays = daysSince(latestReportAt);
+  const commitAgeDays = daysSince(latestCommitAt);
+  const docAverage = docAverageFromSnapshot(latest);
+  const docDelta = docAverage - docAverageFromSnapshot(first);
+  const progressDelta = latest.progress - first.progress;
+
+  let score = 0;
+  score += latest.risk === "high" ? 60 : latest.risk === "medium" ? 28 : 8;
+  score += criticalOpen * 28 + highOpen * 7;
+  score += latest.progress < 25 ? 18 : latest.progress < 45 ? 10 : 0;
+  score += docAverage < 3 ? 12 : docAverage < 5 ? 7 : 0;
+  score += oldest && oldest.age >= 10 ? 14 : oldest && oldest.age >= 5 ? 8 : 0;
+  score += reportAgeDays >= 10 ? 16 : reportAgeDays >= 5 ? 9 : 0;
+  score += progressDelta < 0 ? 8 : 0;
+
+  const reasons: string[] = [];
+  if (latest.risk === "high") reasons.push("high risk");
+  if (criticalOpen > 0) reasons.push(`P0 ${criticalOpen}건`);
+  if (highOpen > 0) reasons.push(`P1 ${highOpen}건`);
+  if (oldest && oldest.age >= 5) reasons.push(`backlog ${oldest.age}회 이월`);
+  if (docAverage < 4) reasons.push(`문서 ${round1(docAverage)}/10`);
+  if (reportAgeDays >= 5) reasons.push(`${reportAgeDays}일 전 리포트`);
+  if (progressDelta < 0) reasons.push(`진행도 ${progressDelta}pts`);
+  if (reasons.length === 0) reasons.push("정상 추적");
+
+  const attention: AttentionLevel =
+    latest.risk === "high" || criticalOpen > 0 || reportAgeDays >= 10
+      ? "urgent"
+      : latest.risk === "medium" || highOpen > 0 || reportAgeDays >= 5
+        ? "watch"
+        : "steady";
+
+  return {
+    project: p.project,
+    risk: latest.risk,
+    summary: latestData.summary,
+    progress: latest.progress,
+    progressDelta,
+    docAverage: round1(docAverage),
+    docDelta: round1(docDelta),
+    reportCount: p.reports.length,
+    todoCount: todos.length,
+    backlogCount: backlogs.length,
+    resolvedCount: resolved.length,
+    criticalOpen,
+    highOpen,
+    oldestBacklogAge: oldest?.age ?? 0,
+    oldestBacklogTitle: oldest?.title,
+    lastReportAt: latestReportAt,
+    lastCommitAt: latestCommitAt,
+    reportAgeDays,
+    commitAgeDays,
+    attention,
+    score,
+    reasons: reasons.slice(0, 4),
+  };
+}
