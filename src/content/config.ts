@@ -43,8 +43,8 @@ const reports = defineCollection({
       }),
     commit_count: z.number().int().nonnegative(),
     risk_level: z.enum(["low", "medium", "high"]),
-    tags: z.array(z.string()).default([]),
-    summary: z.string().min(1),
+    tags: z.array(z.string().min(1)).min(3).max(6),
+    summary: z.string().min(1).max(60),
 
     // ── 신규 필드 ──
     // 예상 진행도 (%). Claude 가 문서/코드 현황/남은 작업을 종합해 판정.

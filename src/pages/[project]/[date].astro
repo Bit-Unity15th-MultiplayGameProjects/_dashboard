@@ -8,6 +8,8 @@ import RiskBadge from "../../components/RiskBadge.astro";
 import ProgressPanel from "../../components/ProgressPanel.astro";
 import {
   getProjectSummaries,
+  lastReportAt,
+  reportUpdatedAt,
   type ReportInfo,
   type ProjectSummary,
 } from "../../lib/reports";
@@ -44,6 +46,8 @@ interface Props {
 const { summary, current, currentIdx } = Astro.props;
 const entry = current.entry;
 const data = entry.data;
+const currentReportAt =
+  currentIdx === 0 ? lastReportAt(summary) : reportUpdatedAt(current);
 const { Content } = await render(entry);
 
 const BASE = import.meta.env.BASE_URL;
@@ -68,10 +72,13 @@ function formatDate(iso: string) {
   });
 }
 function formatDateShort(iso: string) {
-  return new globalThis.Date(iso).toLocaleDateString("ko-KR", {
+  return new globalThis.Date(iso).toLocaleString("ko-KR", {
     timeZone: "Asia/Seoul",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 function reportHref(slug: string) {
@@ -100,7 +107,7 @@ const deltaColor =
       <span style="color:var(--fg-3);font-size:13px;margin:0 4px;">/</span>
       <a
         href={`${base}/${current.project}/`}
-        style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-1);text-decoration:none;padding:4px 8px;border-radius:3px;"
+        style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-1);text-decoration:none;padding:4px 8px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
         >{current.project}</a
       >
       <span style="color:var(--fg-3);font-size:13px;margin:0 4px;">/</span>
@@ -154,7 +161,7 @@ const deltaColor =
         <span
           style="font-family:var(--mono);font-size:11px;color:var(--fg-3);margin-left:auto;"
         >
-          {formatDate(data.date)}
+          {formatDate(currentReportAt)}
         </span>
       </div>
     </section>
@@ -163,7 +170,7 @@ const deltaColor =
       <ProgressPanel
         progress={data.progress_estimate}
         scores={data.doc_scores}
-        updatedAt={data.date}
+        updatedAt={currentReportAt}
       />
     </section>
 
@@ -205,12 +212,14 @@ const deltaColor =
         </span>
       </div>
       <div
+        class="timeline-list"
         style="border:1px solid var(--border);border-radius:4px;background:var(--bg-1);overflow:hidden;"
       >
         {
           summary.reports.map((r, i) => {
             const d = r.entry.data;
             const isCurrent = r.slug === current.slug;
+            const updatedAt = reportUpdatedAt(r);
             return (
               <a
                 href={isCurrent ? undefined : reportHref(r.slug)}
@@ -218,25 +227,32 @@ const deltaColor =
                 class="timeline-row"
                 style={`display:grid;grid-template-columns:170px 64px 90px 1fr 70px 24px;gap:12px;align-items:center;padding:12px 14px;border-bottom:${i < summary.reports.length - 1 ? "1px solid var(--border)" : "none"};text-decoration:none;color:inherit;font-family:var(--sans);transition:background .12s;background:${isCurrent ? "var(--bg-2)" : "transparent"};cursor:${isCurrent ? "default" : "pointer"};pointer-events:${isCurrent ? "none" : "auto"};`}
               >
-                <span style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;">
-                  {formatDateShort(d.date)}
+                <time
+                  datetime={updatedAt}
+                  title={formatDate(updatedAt)}
+                  class="timeline-date"
+                  style="font-family:var(--mono);font-size:12px;color:var(--fg-1);white-space:nowrap;"
+                >
+                  {formatDateShort(updatedAt)}
                   {isCurrent && (
                     <span style="margin-left:6px;padding:1px 5px;background:var(--accent);color:var(--accent-fg);font-size:9px;border-radius:2px;font-weight:600;white-space:nowrap;">
                       CURRENT
                     </span>
                   )}
+                </time>
+                <span class="timeline-risk">
+                  <RiskBadge level={d.risk_level} />
                 </span>
-                <RiskBadge level={d.risk_level} />
-                <span style="font-family:var(--mono);font-size:11px;color:var(--fg-2);">
+                <span class="timeline-commits" style="font-family:var(--mono);font-size:11px;color:var(--fg-2);">
                   {d.commit_count} commits
                 </span>
-                <span style="font-size:12.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                <span class="timeline-summary" style="font-size:12.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                   {d.summary}
                 </span>
-                <span style="font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;">
+                <span class="timeline-progress" style="font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;">
                   {d.progress_estimate}%
                 </span>
-                <span style="color:var(--fg-3);">{isCurrent ? "" : "→"}</span>
+                <span class="timeline-arrow" style="color:var(--fg-3);">{isCurrent ? "" : "→"}</span>
               </a>
             );
           })

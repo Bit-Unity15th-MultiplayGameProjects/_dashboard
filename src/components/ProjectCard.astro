@@ -14,15 +14,22 @@ interface Props {
   tags: string[];
   snapshots: ChartSnapshot[]; // chronological (oldest first)
   lastCommitAt: string; // ISO 8601 — meta.last_commit_at 또는 latest report date
+  lastReportAt: string; // ISO 8601 — meta.last_report_at 또는 latest report filename
 }
 
-const { project, href, summary, risk, tags, snapshots, lastCommitAt } =
+const { project, href, summary, risk, tags, snapshots, lastCommitAt, lastReportAt } =
   Astro.props;
 
 // 빌드 시점 스냅샷이라 "3시간 전" 같은 relative 는 배포 후 stale 해진다.
 // 카드엔 stable 한 absolute 를 KST 로 표기, full ISO 는 title 에 남긴다.
 const commitDate = new Date(lastCommitAt);
-const commitShort = commitDate.toLocaleString("ko-KR", {
+const commitFull = commitDate.toLocaleString("ko-KR", {
+  timeZone: "Asia/Seoul",
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+const reportDate = new Date(lastReportAt);
+const reportShort = reportDate.toLocaleString("ko-KR", {
   timeZone: "Asia/Seoul",
   month: "2-digit",
   day: "2-digit",
@@ -30,10 +37,10 @@ const commitShort = commitDate.toLocaleString("ko-KR", {
   minute: "2-digit",
   hour12: false,
 });
-const commitFull = commitDate.toLocaleString("ko-KR", {
+const reportFull = reportDate.toLocaleString("ko-KR", {
   timeZone: "Asia/Seoul",
   dateStyle: "medium",
-  timeStyle: "short",
+  timeStyle: "medium",
 });
 
 const first = snapshots[0];
@@ -78,11 +85,12 @@ const deltaLabel =
       </p>
     </div>
     <time
-      datetime={lastCommitAt}
-      title={`last commit · ${commitFull}`}
-      style="flex:none;font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.04em;text-align:right;white-space:nowrap;padding-top:2px;"
+      datetime={lastReportAt}
+      title={`report updated · ${reportFull}\nlast commit · ${commitFull}`}
+      style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.04em;text-align:right;white-space:nowrap;padding-top:2px;line-height:1.25;"
     >
-      {commitShort}
+      <span style="font-size:9px;text-transform:uppercase;color:var(--fg-3);letter-spacing:0.08em;">report</span>
+      <span>{reportShort}</span>
     </time>
   </div>
 

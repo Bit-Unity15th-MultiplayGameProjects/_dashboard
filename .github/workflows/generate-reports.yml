@@ -393,7 +393,7 @@ jobs:
             # (깨진 리포트 커밋 방지 · 인젝션으로 조작된 risk_level 등 차단).
             # validator 세부: scripts/validate-report.py
             if ! python3 scripts/validate-report.py "$TMP" \
-                 --project "$REPO" --strict; then
+                 --project "$REPO" --strict --new-report; then
               echo "::error::validator rejected output for $REPO — discarding report"
               echo "::group::rejected output (redacted first 40 lines, for debug)"
               python3 -c 'import re, sys; text = open(sys.argv[1], encoding="utf-8", errors="replace").read(); patterns = [r"sk-ant-oat\w{10,}", r"sk-proj-[A-Za-z0-9_-]{10,}", r"sk-[A-Za-z0-9_-]{20,}", r"github_pat_\w{10,}", r"gh[pousr]_\w{10,}", r"""\"(access_token|refresh_token|id_token)\"\s*:\s*\"[^\"]+\""""]; [None for pat in patterns for _ in [0] if not (text := re.sub(pat, "[REDACTED_SECRET]", text))]; print("\n".join(text.splitlines()[:40]))' "$TMP" >&2 || true

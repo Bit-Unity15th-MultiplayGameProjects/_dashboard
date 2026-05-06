@@ -13,12 +13,16 @@ const { noRight = false } = Astro.props;
 ---
 
 <header
-  style="height:52px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;"
+  class="site-header"
+  style="height:52px;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;"
 >
-  <slot name="left" />
+  <div class="site-header__left">
+    <slot name="left" />
+  </div>
   {
     !noRight && (
       <div
+        class="site-header__right"
         style="margin-left:auto;display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:11px;color:var(--fg-3);"
       >
         <slot name="right" />
@@ -61,8 +65,34 @@ const { noRight = false } = Astro.props;
 </header>
 
 <style>
+  .site-header__left {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .site-header__right {
+    flex: 0 0 auto;
+  }
+
   [data-tweaks-toggle]:hover {
     border-color: var(--accent) !important;
     color: var(--fg-1) !important;
+  }
+
+  @media (max-width: 640px) {
+    .site-header {
+      padding: 0 12px !important;
+      gap: 8px !important;
+    }
+
+    .site-header__right {
+      gap: 8px !important;
+    }
+
+    .site-header__right :global([data-header-secondary]) {
+      display: none !important;
+    }
   }
 </style>
