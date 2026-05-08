@@ -1,9 +1,9 @@
 {
-  "last_sha": "65638fc29714e3376ffcf8e9c425d2a8f421614e",
-  "last_report_at": "2026-05-05T11:48:57+00:00",
-  "last_report_file": "reports/Rougelike-EndWalker/2026-05-05T11-47-54Z.md",
-  "report_count": 8,
-  "last_commit_at": "2026-05-05T20:02:15+09:00",
+  "last_sha": "5ffec35556f39d13c2b113e9d4370e0e9942d14a",
+  "last_report_at": "2026-05-08T07:24:55+00:00",
+  "last_report_file": "reports/Rougelike-EndWalker/2026-05-08T07-23-07Z.md",
+  "report_count": 9,
+  "last_commit_at": "2026-05-08T15:28:52+09:00",
   "contributors": [
     "verpivia-1"
   ],
@@ -15,6 +15,7 @@
     "2026-04-30T06:25:45+00:00",
     "2026-05-03T23:28:32+00:00",
     "2026-05-04T08:12:43+00:00",
-    "2026-05-05T11:48:57+00:00"
+    "2026-05-05T11:48:57+00:00",
+    "2026-05-08T07:24:55+00:00"
   ]
 }
