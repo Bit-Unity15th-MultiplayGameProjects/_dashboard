@@ -191,6 +191,89 @@ def _format_ledger_item(record: dict[str, Any]) -> str:
     return f"- {record['title']}  [{'; '.join(extras)}]"
 
 
+def _unresolved_backlog_records(reports_dir: Path) -> list[dict[str, Any]]:
+    if not reports_dir.is_dir():
+        return []
+
+    records: dict[str, dict[str, Any]] = {}
+    for report in sorted(reports_dir.glob("*.md"), key=_report_sort_key):
+        try:
+            rel_report = report.relative_to(reports_dir.parent).as_posix()
+        except ValueError:
+            rel_report = report.as_posix()
+
+        fm = _load_yaml_frontmatter(report)
+
+        for item in fm.get("resolved_from_backlog") or []:
+            title = _item_title(item)
+            if not title:
+                continue
+            key = _normalize_title(title)
+            record = records.get(key)
+            if record:
+                record["status"] = "resolved"
+                record["resolved_seen"] = rel_report
+
+        backlogs = fm.get("backlogs") or []
+        if not isinstance(backlogs, list):
+            continue
+
+        for item in backlogs:
+            title = _item_title(item)
+            if not title:
+                continue
+
+            key = _normalize_title(title)
+            record = records.get(key)
+            if record is None or record.get("status") == "resolved":
+                record = {
+                    "title": title,
+                    "field": "backlogs",
+                    "first_seen": rel_report,
+                    "last_seen": rel_report,
+                    "reports_seen": 0,
+                    "status": "open",
+                }
+                records[key] = record
+
+            record["title"] = title
+            record["field"] = "backlogs"
+            record["last_seen"] = rel_report
+            record["reports_seen"] = int(record.get("reports_seen", 0)) + 1
+            record["status"] = "open"
+
+            if isinstance(item, dict):
+                priority = item.get("priority")
+                if isinstance(priority, str) and priority.strip():
+                    record["priority"] = priority.strip()
+                files = item.get("files")
+                if isinstance(files, list):
+                    clean_files = [
+                        str(f).strip()
+                        for f in files
+                        if isinstance(f, str) and f.strip()
+                    ]
+                    if clean_files:
+                        record["files"] = clean_files
+                details = item.get("details")
+                if isinstance(details, str) and details.strip():
+                    record["details"] = details.strip()
+
+    unresolved = [
+        record
+        for record in records.values()
+        if record.get("status") == "open"
+    ]
+    unresolved.sort(
+        key=lambda r: (
+            PRIORITY_ORDER.get(str(r.get("priority", "")), 9),
+            str(r.get("last_seen", "")),
+            str(r.get("title", "")),
+        )
+    )
+    return unresolved
+
+
 def previous_items(args: argparse.Namespace) -> int:
     fm = _load_yaml_frontmatter(Path(args.report))
     items = fm.get(args.field) or []
@@ -335,6 +418,17 @@ def open_items(args: argparse.Namespace) -> int:
     return 0
 
 
+def unresolved_backlogs(args: argparse.Namespace) -> int:
+    records = _unresolved_backlog_records(Path(args.reports_dir))
+    if not records:
+        sys.stdout.write("(누적 unresolved backlog 없음)\n")
+        return 0
+
+    for record in records:
+        sys.stdout.write(f"- {record['title']}\n")
+    return 0
+
+
 def _is_doc_candidate(root: Path, path: Path) -> bool:
     if path.name in EXCLUDED_FILENAMES:
         return False
@@ -464,6 +558,10 @@ def main() -> int:
     ledger.add_argument("reports_dir")
     ledger.add_argument("--max-items", type=int, default=240)
     ledger.set_defaults(func=open_items)
+
+    required_backlogs = subparsers.add_parser("unresolved-backlogs")
+    required_backlogs.add_argument("reports_dir")
+    required_backlogs.set_defaults(func=unresolved_backlogs)
 
     docs = subparsers.add_parser("docs-snapshot")
     docs.add_argument("repo")
