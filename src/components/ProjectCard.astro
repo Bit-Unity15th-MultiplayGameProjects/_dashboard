@@ -1,6 +1,5 @@
 ---
 import RiskBadge from "./RiskBadge.astro";
-import RiskStrip from "./RiskStrip.astro";
 import Sparkline from "./Sparkline.astro";
 import ProgressBar from "./ProgressBar.astro";
 import Tag from "./Tag.astro";
@@ -58,7 +57,6 @@ const first = snapshots[0];
 const last = snapshots[snapshots.length - 1];
 const delta = last && first ? last.progress - first.progress : 0;
 const progressSeries = snapshots.map((s) => s.progress);
-const risks = snapshots.map((s) => s.risk);
 const deltaColor =
   delta > 0 ? "var(--risk-low)" : delta < 0 ? "var(--risk-high)" : "var(--fg-3)";
 const deltaLabel =
@@ -75,6 +73,20 @@ const riskColor =
     : risk === "medium"
       ? "var(--risk-med)"
       : "var(--risk-low)";
+const improvementColor =
+  signal.improvementBalance > 0
+    ? "var(--risk-low)"
+    : signal.improvementBalance < 0
+      ? "var(--risk-high)"
+      : signal.improvementStatus === "stalled"
+        ? "var(--risk-med)"
+        : "var(--fg-3)";
+const improvementBalanceLabel =
+  signal.improvementBalance > 0
+    ? `+${signal.improvementBalance}`
+    : String(signal.improvementBalance);
+const newBacklogLabel =
+  signal.recentNewBacklogs > 0 ? `-${signal.recentNewBacklogs}` : "0";
 ---
 
 <a
@@ -176,12 +188,20 @@ const riskColor =
   </div>
 
   <div class="project-card__footer">
-    <div style="display:flex;align-items:center;gap:8px;">
+    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
       <span
         style="font-family:var(--mono);font-size:10px;color:var(--fg-3);letter-spacing:0.06em;text-transform:uppercase;"
-        >risk mix · {snapshots.length}R</span
+        >improve · {snapshots.length}R</span
       >
-      <RiskStrip risks={risks} />
+      <span style={`font-family:var(--mono);font-size:10px;color:${improvementColor};`}>
+        net {improvementBalanceLabel}
+      </span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--risk-low);">
+        resolved +{signal.recentResolvedBacklogs}
+      </span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--risk-high);">
+        new {newBacklogLabel}
+      </span>
     </div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
       {tags.slice(0, 3).map((t) => <Tag>{t}</Tag>)}

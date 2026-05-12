@@ -1,0 +1,115 @@
+---
+interface Point {
+  date: string;
+  resolvedBacklogs: number;
+  newBacklogs: number;
+  carryOver: number;
+  staleBacklogs: number;
+  progressDelta: number;
+}
+
+interface Props {
+  points: Point[];
+  width?: number;
+}
+
+const { points, width = 118 } = Astro.props;
+const maxValue = Math.max(
+  1,
+  ...points.flatMap((p) => [p.resolvedBacklogs, p.newBacklogs]),
+);
+const label =
+  points.length === 0
+    ? "improvement history 없음"
+    : points
+        .map(
+          (p) =>
+            `${p.date}: resolved ${p.resolvedBacklogs}, new ${p.newBacklogs}, carry ${p.carryOver}, stale ${p.staleBacklogs}`,
+        )
+        .join(" / ");
+
+function barHeight(value: number): number {
+  if (value <= 0) return 0;
+  return Math.max(3, Math.round((value / maxValue) * 16));
+}
+---
+
+<div
+  class="improvement-strip"
+  role="img"
+  aria-label={label}
+  title={label}
+  style={`--improvement-strip-width:${width}px;`}
+>
+  {
+    points.length === 0 ? (
+      <span class="improvement-strip__empty"></span>
+    ) : (
+      points.map((point) => (
+        <span class="improvement-strip__col">
+          <span
+            class="improvement-strip__bar improvement-strip__bar--up"
+            style={`height:${barHeight(point.resolvedBacklogs)}px;`}
+          ></span>
+          <span class="improvement-strip__axis"></span>
+          <span
+            class="improvement-strip__bar improvement-strip__bar--down"
+            style={`height:${barHeight(point.newBacklogs)}px;`}
+          ></span>
+        </span>
+      ))
+    )
+  }
+</div>
+
+<style>
+  .improvement-strip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+    width: var(--improvement-strip-width);
+    height: 38px;
+    min-width: 0;
+  }
+
+  .improvement-strip__col {
+    display: grid;
+    grid-template-rows: 16px 1px 16px;
+    align-items: end;
+    justify-items: center;
+    width: 7px;
+    height: 35px;
+  }
+
+  .improvement-strip__axis {
+    width: 7px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .improvement-strip__bar {
+    display: block;
+    width: 5px;
+    border-radius: 2px;
+    opacity: 0.88;
+  }
+
+  .improvement-strip__bar--up {
+    align-self: end;
+    background: var(--risk-low);
+  }
+
+  .improvement-strip__bar--down {
+    align-self: start;
+    background: var(--risk-high);
+  }
+
+  .improvement-strip__empty {
+    width: 100%;
+    height: 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bar-bg);
+  }
+</style>
