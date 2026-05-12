@@ -310,6 +310,18 @@ if [[ -d "$REPORTS_DIR" ]]; then
 fi
 echo "[info] open item ledger ($(printf '%s' "$OPEN_ITEMS_LEDGER" | wc -c) bytes)" >&2
 
+REQUIRED_BACKLOG_LEDGER="(누적 unresolved backlog 없음)"
+if [[ -d "$REPORTS_DIR" ]]; then
+  REQUIRED_BACKLOG_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" unresolved-backlogs \
+      "$REPORTS_DIR" 2>/dev/null || true
+  )"
+  if [[ -n "$REQUIRED_BACKLOG_EXTRACTED" ]]; then
+    REQUIRED_BACKLOG_LEDGER="$REQUIRED_BACKLOG_EXTRACTED"
+  fi
+fi
+echo "[info] required backlog ledger ($(printf '%s' "$REQUIRED_BACKLOG_LEDGER" | wc -c) bytes)" >&2
+
 # ---- _sample/docs rubric 레퍼런스 ----------------------------------------
 # 문서 완성도 평가 rubric. _sample 은 org 관리자 통제 하의 정적 참조 repo.
 # 매 run 얕은 clone (가벼움) — 항상 최신 기준을 사용.
@@ -382,6 +394,7 @@ LAST_REPORT_DATE="$LAST_REPORT_DATE" \
 PREVIOUS_TODOS="$PREVIOUS_TODOS" \
 PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
 OPEN_ITEMS_LEDGER="$OPEN_ITEMS_LEDGER" \
+REQUIRED_BACKLOG_LEDGER="$REQUIRED_BACKLOG_LEDGER" \
 SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
 PROJECT_DOCS_SNAPSHOT="$PROJECT_DOCS_SNAPSHOT" \
 python3 - "$TEMPLATE" "$OUTPUT_PATH" <<'PY'
@@ -400,6 +413,7 @@ tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 STUDENT_CONTROLLED = {
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
     "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
+    "REQUIRED_BACKLOG_LEDGER",
     "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
@@ -414,7 +428,8 @@ for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
     "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
-    "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
+    "REQUIRED_BACKLOG_LEDGER", "SAMPLE_DOCS_REFERENCE",
+    "PROJECT_DOCS_SNAPSHOT",
 ):
     value = _scrub(os.environ.get(key, ""))
     if key in STUDENT_CONTROLLED:

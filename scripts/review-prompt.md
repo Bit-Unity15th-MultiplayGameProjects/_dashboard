@@ -12,6 +12,7 @@
   {{PREVIOUS_TODOS}}          - 이전 리포트의 todos 필드 (없으면 안내 문구)
   {{PREVIOUS_BACKLOG}}        - 이전 리포트의 backlogs 필드 (없으면 안내 문구)
   {{OPEN_ITEMS_LEDGER}}       - 리포트 히스토리 누적 open TODO/Backlog ledger
+  {{REQUIRED_BACKLOG_LEDGER}} - validator 필수 회계 대상 backlog title 목록
   {{SAMPLE_DOCS_REFERENCE}}   - _sample/docs 에서 추출한 rubric 참고 (8KB cap)
   {{PROJECT_DOCS_SNAPSHOT}}   - 현재 프로젝트 repo 문서 후보와 본문 발췌
 
@@ -90,6 +91,19 @@
 
 ```
 {{OPEN_ITEMS_LEDGER}}
+```
+
+### Validator 필수 Backlog 회계 목록
+
+아래 title 들은 validator 가 누적 report history 에서 아직 unresolved 로 판정한
+backlog 입니다. 새 리포트 frontmatter 의 `backlogs` 또는
+`resolved_from_backlog` 중 정확히 한 곳에 같은 title 로 들어가야 합니다.
+현재 코드/문서에서 해결됐거나 더 이상 유효하지 않다면 `resolved_from_backlog`,
+아직 남았거나 부분 해결이면 `backlogs` 로 이월합니다. title 을 바꾸거나
+누락하면 validator 가 리포트를 폐기합니다.
+
+```
+{{REQUIRED_BACKLOG_LEDGER}}
 ```
 
 ## 문서화 rubric 참고 (`_sample/docs`)
@@ -599,8 +613,8 @@ resolved_from_backlog:
   분류했는가.
 - 직전 Backlog 의 모든 title 이 새 `backlogs` 또는 `resolved_from_backlog` 중
   정확히 한쪽에 회계 처리됐는가.
-- 누적 Open Item Ledger 의 unresolved `backlogs` title 이 조용히 사라지지 않고
-  새 `backlogs` 또는 `resolved_from_backlog` 에 정확한 title 로 반영됐는가.
+- Validator 필수 Backlog 회계 목록의 모든 title 이 새 `backlogs` 또는
+  `resolved_from_backlog` 에 정확히 같은 title 로 반영됐는가.
 - 누적 Open Item Ledger 의 "최신 리포트 open items" 를 하나도 빠뜨리지 않고
   현재 repo 기준으로 재판정했는가.
 - "해결 기록 없이 최신 리포트에서 사라진 항목"을 관성 삭제로 방치하지 않고,
