@@ -1,9 +1,9 @@
 {
-  "last_sha": "5d23bfcb4971e7e7164e49cc231d0e1ecb063069",
-  "last_report_at": "2026-05-12T06:12:04+00:00",
-  "last_report_file": "reports/Exit-or-die/2026-05-12T06-08-01Z.md",
-  "report_count": 17,
-  "last_commit_at": "2026-05-12T15:05:22+09:00",
+  "last_sha": "5cdaa4ea3021286a66f0d66ecc7259471adfca90",
+  "last_report_at": "2026-05-12T08:13:50+00:00",
+  "last_report_file": "reports/Exit-or-die/2026-05-12T08-11-19Z.md",
+  "report_count": 18,
+  "last_commit_at": "2026-05-12T15:57:01+09:00",
   "contributors": [
     "kimin",
     "김인"
@@ -25,6 +25,7 @@
     "2026-05-12T02:28:39+00:00",
     "2026-05-12T03:40:07+00:00",
     "2026-05-12T04:40:56+00:00",
-    "2026-05-12T06:12:04+00:00"
+    "2026-05-12T06:12:04+00:00",
+    "2026-05-12T08:13:50+00:00"
   ]
 }
