@@ -364,6 +364,34 @@ def validate(
                         f"(got: {type(item).__name__})"
                     )
 
+    # 신규 리포트에서 해결 처리한 항목이 동시에 open item 으로 남으면 UI와
+    # 다음 프롬프트가 서로 모순된 상태를 물려받는다.
+    if new_report:
+        def titles_of(field: str) -> set[str]:
+            out: set[str] = set()
+            values = fm.get(field) or []
+            if not isinstance(values, list):
+                return out
+            for item in values:
+                if isinstance(item, str):
+                    title = item.strip()
+                elif isinstance(item, dict) and isinstance(item.get("title"), str):
+                    title = item["title"].strip()
+                else:
+                    title = ""
+                if title:
+                    out.add(title)
+            return out
+
+        open_titles = titles_of("todos") | titles_of("backlogs")
+        resolved_titles = titles_of("resolved_from_backlog")
+        overlap = sorted(open_titles & resolved_titles)
+        if overlap:
+            errors.append(
+                "resolved_from_backlog 항목이 todos/backlogs 에도 남아있음: "
+                + ", ".join(overlap)
+            )
+
     # 본문 필수 섹션 헤딩
     for h in REQUIRED_HEADINGS:
         if h not in body:
