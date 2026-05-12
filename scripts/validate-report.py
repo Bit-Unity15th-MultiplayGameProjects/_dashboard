@@ -37,6 +37,7 @@ default (no --strict):
 from __future__ import annotations
 
 import argparse
+from difflib import SequenceMatcher
 import re
 import sys
 from pathlib import Path
@@ -101,6 +102,13 @@ PRIORITY_ORDER: dict[str, int] = {
     "high": 1,
     "medium": 2,
     "low": 3,
+}
+TITLE_SIMILARITY_THRESHOLD = 0.58
+TITLE_STOP_WORDS = {
+    "및", "과", "와", "이", "가", "은", "는", "을", "를", "에", "에서",
+    "으로", "로", "의", "도", "또", "또한", "아직", "현재", "기반",
+    "관련", "필요", "부재", "부족", "확인", "검증", "추가", "문서",
+    "코드", "항목", "처리",
 }
 
 COMMIT_RANGE_RE = re.compile(r"^[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}$", re.IGNORECASE)
@@ -185,6 +193,69 @@ def duplicate_alias_titles(items: object) -> list[tuple[str, str]]:
             duplicates.append((previous, title))
         else:
             seen[key] = title
+    return duplicates
+
+
+def title_similarity_key(title: str) -> str:
+    text = re.sub(r"`([^`]*)`", r"\1", title)
+    text = re.sub(r"\([^)]*\)|（[^）]*）", " ", text)
+    chars = [
+        ch.casefold() if ch.isalnum() or ("가" <= ch <= "힣") else " "
+        for ch in text
+    ]
+    return re.sub(r"\s+", " ", "".join(chars)).strip()
+
+
+def title_tokens(title: str) -> set[str]:
+    return {
+        token
+        for token in title_similarity_key(title).split()
+        if len(token) >= 2 and token not in TITLE_STOP_WORDS
+    }
+
+
+def title_similarity(left: str, right: str) -> float:
+    left_key = title_similarity_key(left)
+    right_key = title_similarity_key(right)
+    if not left_key or not right_key:
+        return 0.0
+
+    sequence_ratio = SequenceMatcher(None, left_key, right_key).ratio()
+    left_tokens = title_tokens(left)
+    right_tokens = title_tokens(right)
+    if not left_tokens and not right_tokens:
+        return sequence_ratio
+
+    overlap = len(left_tokens & right_tokens)
+    union = len(left_tokens | right_tokens)
+    jaccard = overlap / union if union else 0.0
+    containment = max(
+        overlap / max(1, len(left_tokens)),
+        overlap / max(1, len(right_tokens)),
+    )
+    return max(sequence_ratio, jaccard, containment * 0.82)
+
+
+def duplicate_open_item_titles(fm: dict[str, object]) -> list[tuple[str, str, str, str, float]]:
+    rows: list[tuple[str, str]] = []
+    for field in ("todos", "backlogs"):
+        items = fm.get(field) or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            title = item_title(item)
+            if title:
+                rows.append((field, title))
+
+    duplicates: list[tuple[str, str, str, str, float]] = []
+    for i, (left_field, left_title) in enumerate(rows):
+        for right_field, right_title in rows[i + 1:]:
+            if left_title == right_title:
+                duplicates.append((left_field, left_title, right_field, right_title, 1.0))
+                continue
+            score = title_similarity(left_title, right_title)
+            if score >= TITLE_SIMILARITY_THRESHOLD:
+                duplicates.append((left_field, left_title, right_field, right_title, score))
     return duplicates
 
 
@@ -491,6 +562,19 @@ def validate(
             )
             errors.append(
                 "backlogs contains duplicate title variants for the same open issue: "
+                + formatted
+            )
+
+        open_item_duplicates = duplicate_open_item_titles(fm)
+        if open_item_duplicates:
+            formatted = "; ".join(
+                f"{left_field}:{left_title!r} <-> "
+                f"{right_field}:{right_title!r} ({score:.2f})"
+                for left_field, left_title, right_field, right_title, score
+                in open_item_duplicates
+            )
+            errors.append(
+                "todos/backlogs contain duplicate or overlapping open item titles: "
                 + formatted
             )
 
