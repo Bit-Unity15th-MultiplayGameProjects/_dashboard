@@ -429,6 +429,143 @@ def unresolved_backlogs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evidence_terms(title: str) -> list[str]:
+    terms: list[str] = []
+
+    for term in re.findall(r"`([^`]{2,80})`", title):
+        cleaned = term.strip()
+        if cleaned and cleaned not in terms:
+            terms.append(cleaned)
+
+    without_backticks = re.sub(r"`[^`]+`", " ", title)
+    for term in re.findall(r"[A-Za-z0-9_.:/-]{3,}|[가-힣]{2,}", without_backticks):
+        cleaned = term.strip(".,;:()[]{}'\"")
+        if cleaned and cleaned.casefold() not in {
+            "README".casefold(),
+            "backlog",
+            "todo",
+            "docs",
+        } and cleaned not in terms:
+            terms.append(cleaned)
+
+    return terms[:10]
+
+
+def _safe_repo_file(repo_root: Path, rel_path: str) -> Path | None:
+    candidate = (repo_root / rel_path).resolve()
+    try:
+        candidate.relative_to(repo_root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def _line_snippet(line: str, max_chars: int = 180) -> str:
+    text = re.sub(r"\s+", " ", line).strip()
+    if len(text) > max_chars:
+        return text[: max_chars - 3].rstrip() + "..."
+    return text
+
+
+def _term_evidence(term: str, file_texts: dict[str, str], max_snippets: int) -> list[str]:
+    needles = [term]
+    if "/" in term:
+        needles.extend(part.strip() for part in term.split("/") if part.strip())
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for needle in needles:
+        needle_key = needle.casefold()
+        matches: list[str] = []
+        for rel, text in file_texts.items():
+            for idx, line in enumerate(text.splitlines(), start=1):
+                if needle_key in line.casefold():
+                    matches.append(f"{rel}:{idx}: {_line_snippet(line)}")
+                    if len(matches) >= max_snippets:
+                        break
+            if len(matches) >= max_snippets:
+                break
+
+        if matches:
+            for match in matches:
+                if match not in seen:
+                    lines.append(f"    - `{needle}` found: {match}")
+                    seen.add(match)
+        else:
+            lines.append(f"    - `{needle}` not found in referenced files")
+
+    return lines
+
+
+def backlog_evidence(args: argparse.Namespace) -> int:
+    reports_dir = Path(args.reports_dir)
+    repo_root = Path(args.repo).resolve()
+    records = _unresolved_backlog_records(reports_dir)
+    if not records:
+        sys.stdout.write("(누적 unresolved backlog 없음)\n")
+        return 0
+
+    max_items = max(1, int(args.max_items))
+    max_bytes = max(1024, int(args.max_bytes))
+    max_snippets = max(1, int(args.max_snippets))
+
+    out: list[str] = []
+    used = 0
+
+    for record in records[:max_items]:
+        title = str(record.get("title", "")).strip()
+        files = [str(f).strip() for f in record.get("files") or [] if str(f).strip()]
+        block: list[str] = [f"- title: {title}"]
+        if files:
+            block.append("  files: " + ", ".join(files[:4]))
+        else:
+            block.append("  files: (not recorded)")
+
+        file_texts: dict[str, str] = {}
+        for rel in files[:4]:
+            path = _safe_repo_file(repo_root, rel)
+            if path is None:
+                block.append(f"  - {rel}: skipped unsafe path")
+                continue
+            if not path.exists():
+                block.append(f"  - {rel}: file missing in current repo")
+                continue
+            if path.is_dir():
+                block.append(f"  - {rel}: directory, not a text file")
+                continue
+            text = _read_text(path)
+            if text is None:
+                block.append(f"  - {rel}: unreadable or binary")
+                continue
+            file_texts[rel] = text
+
+        if file_texts:
+            block.append("  evidence:")
+            terms = _evidence_terms(title)
+            if terms:
+                for term in terms:
+                    block.extend(_term_evidence(term, file_texts, max_snippets))
+            else:
+                block.append("    - no searchable term extracted from title")
+        else:
+            block.append("  evidence: no referenced current text file available")
+
+        chunk = "\n".join(block) + "\n"
+        chunk_bytes = len(chunk.encode("utf-8"))
+        if used + chunk_bytes > max_bytes:
+            out.append("- ... [backlog evidence truncated by byte budget] ...")
+            break
+        out.append(chunk.rstrip())
+        used += chunk_bytes
+
+    if len(records) > max_items:
+        out.append(f"- ... [{len(records) - max_items} more backlog items omitted] ...")
+
+    sys.stdout.write("\n".join(out).rstrip())
+    sys.stdout.write("\n")
+    return 0
+
+
 def _is_doc_candidate(root: Path, path: Path) -> bool:
     if path.name in EXCLUDED_FILENAMES:
         return False
@@ -562,6 +699,14 @@ def main() -> int:
     required_backlogs = subparsers.add_parser("unresolved-backlogs")
     required_backlogs.add_argument("reports_dir")
     required_backlogs.set_defaults(func=unresolved_backlogs)
+
+    evidence = subparsers.add_parser("backlog-evidence")
+    evidence.add_argument("reports_dir")
+    evidence.add_argument("repo")
+    evidence.add_argument("--max-items", type=int, default=120)
+    evidence.add_argument("--max-bytes", type=int, default=65536)
+    evidence.add_argument("--max-snippets", type=int, default=2)
+    evidence.set_defaults(func=backlog_evidence)
 
     docs = subparsers.add_parser("docs-snapshot")
     docs.add_argument("repo")

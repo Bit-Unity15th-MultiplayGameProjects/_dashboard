@@ -13,6 +13,7 @@
   {{PREVIOUS_BACKLOG}}        - 이전 리포트의 backlogs 필드 (없으면 안내 문구)
   {{OPEN_ITEMS_LEDGER}}       - 리포트 히스토리 누적 open TODO/Backlog ledger
   {{REQUIRED_BACKLOG_LEDGER}} - validator 필수 회계 대상 backlog title 목록
+  {{BACKLOG_EVIDENCE_SNAPSHOT}} - 누적 backlog 관련 현재 파일 검색 증거
   {{SAMPLE_DOCS_REFERENCE}}   - _sample/docs 에서 추출한 rubric 참고 (8KB cap)
   {{PROJECT_DOCS_SNAPSHOT}}   - 현재 프로젝트 repo 문서 후보와 본문 발췌
 
@@ -68,6 +69,13 @@
   현재 해결 또는 무효가 확인되면 같은 title 을 `resolved_from_backlog` 에 넣고,
   아직 남았으면 같은 title 을 `backlogs` 에 유지합니다. title rename 으로 조용히
   사라지게 만들면 validator 가 리포트를 폐기합니다.
+- 단, 필수 Backlog 회계 목록은 "계속 미해결로 유지하라"는 뜻이 아닙니다.
+  아래 현재 파일 기반 증거가 항목을 반박하면 반드시 `resolved_from_backlog` 로
+  옮깁니다. 예를 들어 title 이 `A`/`B` 혼용을 말하는데 현재 관련 파일에서 `B` 가
+  사라졌다면 해결된 항목입니다.
+- 같은 이슈의 title 변형을 두 개 이상의 open `backlogs` 로 남기지 마세요.
+  과거 title 변형은 `resolved_from_backlog` 로 닫고, 정말 남은 별도 문제만
+  하나의 backlog 로 유지합니다.
 
 ### 이전 TODO
 
@@ -104,6 +112,18 @@ backlog 입니다. 새 리포트 frontmatter 의 `backlogs` 또는
 
 ```
 {{REQUIRED_BACKLOG_LEDGER}}
+```
+
+### 현재 파일 기반 Backlog 증거
+
+아래는 validator 필수 Backlog 회계 목록의 관련 파일을 현재 repo HEAD 에서 다시
+읽고, title 의 핵심 단어와 backtick token 이 실제로 남아 있는지 찾은 증거입니다.
+이 증거가 항목이 이미 해결됐음을 보여주면 `backlogs` 에 남기지 말고 정확한 title
+그대로 `resolved_from_backlog` 에 넣으세요. 증거가 부족할 때만 보수적으로
+`backlogs` 에 유지합니다.
+
+```
+{{BACKLOG_EVIDENCE_SNAPSHOT}}
 ```
 
 ## 문서화 rubric 참고 (`_sample/docs`)
@@ -615,6 +635,9 @@ resolved_from_backlog:
   정확히 한쪽에 회계 처리됐는가.
 - Validator 필수 Backlog 회계 목록의 모든 title 이 새 `backlogs` 또는
   `resolved_from_backlog` 에 정확히 같은 title 로 반영됐는가.
+- 현재 파일 기반 Backlog 증거가 해결을 보여주는 항목을 관성적으로 `backlogs` 에
+  남기지 않았는가.
+- 같은 이슈의 title 변형이 open `backlogs` 에 동시에 남지 않았는가.
 - 누적 Open Item Ledger 의 "최신 리포트 open items" 를 하나도 빠뜨리지 않고
   현재 repo 기준으로 재판정했는가.
 - "해결 기록 없이 최신 리포트에서 사라진 항목"을 관성 삭제로 방치하지 않고,
