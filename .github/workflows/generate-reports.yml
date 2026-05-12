@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       force:
-        description: "자동 rate limit 무시 (SHA 동일하면 여전히 skip)"
+        description: "자동 게이트를 무시하고 리포트 재발행 (SHA 동일해도 실행)"
         required: false
         type: boolean
         default: false
@@ -170,10 +170,11 @@ jobs:
           set -euo pipefail
 
           if [[ "${FORCE:-false}" == "true" ]]; then
-            echo "[info] force=true - bypassing automatic report rate limit" >&2
+            echo "[info] force=true - bypassing automatic report gates" >&2
 
-            # force 라도 원격 HEAD SHA 는 조회해야 한다. SHA 가 last_sha 와 같으면
-            # 의미 있는 diff 가 없으니 여전히 skip (자원·토큰 낭비 방지).
+            # force 는 "리포트 판정/문서 점수/Backlog 회계"를 고치기 위한 수동 재발행도
+            # 허용한다. SHA 가 같아도 현재 문서 스냅샷과 누적 open item ledger 로 새
+            # 리포트를 만들 수 있어야 한다.
             DEFAULT_BRANCH=$(gh api "repos/${ORG}/${REPO}" --jq '.default_branch')
             CURRENT_SHA=$(gh api "repos/${ORG}/${REPO}/commits/${DEFAULT_BRANCH}" --jq '.sha')
 
@@ -184,11 +185,12 @@ jobs:
               LAST_SHA=""
             fi
 
+            SHOULD=true
             if [[ -n "$LAST_SHA" && "$CURRENT_SHA" == "$LAST_SHA" ]]; then
-              SHOULD=false
-              REASON="force=true but no new commits (SHA unchanged)"
+              COMMIT_COUNT=0
+              REASON="force=true (manual refresh; SHA unchanged)"
             else
-              SHOULD=true
+              COMMIT_COUNT="?"
               REASON="force=true (manual bypass)"
             fi
 
@@ -198,7 +200,7 @@ jobs:
               echo "should_run=$SHOULD"
               echo "current_sha=$CURRENT_SHA"
               echo "last_sha=$LAST_SHA"
-              echo "commit_count=?"
+              echo "commit_count=$COMMIT_COUNT"
               echo "first_report=$FIRST"
               echo "reason=$REASON"
             } >> "$GITHUB_OUTPUT"
@@ -392,8 +394,24 @@ jobs:
             # 스키마 + 보안 validator. 실패 시 파일을 reports/ 로 옮기지 않는다
             # (깨진 리포트 커밋 방지 · 인젝션으로 조작된 risk_level 등 차단).
             # validator 세부: scripts/validate-report.py
-            if ! python3 scripts/validate-report.py "$TMP" \
-                 --project "$REPO" --strict --new-report; then
+            VALIDATE_ARGS=(
+              scripts/validate-report.py "$TMP"
+              --project "$REPO"
+              --strict
+              --new-report
+            )
+            META="reports/${REPO}/.meta.json"
+            if [[ -f "$META" ]]; then
+              PREVIOUS_REPORT="$(jq -r '.last_report_file // ""' "$META")"
+              if [[ -n "$PREVIOUS_REPORT" && -f "$PREVIOUS_REPORT" ]]; then
+                VALIDATE_ARGS+=(
+                  --previous-report "$PREVIOUS_REPORT"
+                  --enforce-backlog-carryover
+                )
+              fi
+            fi
+
+            if ! python3 "${VALIDATE_ARGS[@]}"; then
               echo "::error::validator rejected output for $REPO — discarding report"
               echo "::group::rejected output (redacted first 40 lines, for debug)"
               python3 -c 'import re, sys; text = open(sys.argv[1], encoding="utf-8", errors="replace").read(); patterns = [r"sk-ant-oat\w{10,}", r"sk-proj-[A-Za-z0-9_-]{10,}", r"sk-[A-Za-z0-9_-]{20,}", r"github_pat_\w{10,}", r"gh[pousr]_\w{10,}", r"""\"(access_token|refresh_token|id_token)\"\s*:\s*\"[^\"]+\""""]; [None for pat in patterns for _ in [0] if not (text := re.sub(pat, "[REDACTED_SECRET]", text))]; print("\n".join(text.splitlines()[:40]))' "$TMP" >&2 || true

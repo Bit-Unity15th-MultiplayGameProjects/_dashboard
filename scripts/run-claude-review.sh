@@ -113,7 +113,9 @@ fi
 
 # ---- 커밋 범위 결정 --------------------------------------------------------
 
+FIRST_REPORT_RANGE=0
 if [[ -z "$FROM_SHA" ]]; then
+  FIRST_REPORT_RANGE=1
   # first report: TO_SHA 이전 최대 30 커밋 (history 부족하면 root 부터).
   # frontmatter commit_range 는 Astro zod regex `^[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}$`
   # 를 통과해야 하므로 `TO_SHA~30` 같은 symbolic ref 는 반드시 SHA 로 resolve.
@@ -155,14 +157,16 @@ echo "[info] clone facts written: $CLONE_FACTS_PATH" >&2
 # commit_range frontmatter 표기는 그대로 `<from>..<to>` 형태를 유지해야 zod 통과.
 EMPTY_TREE_SHA="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 DIFF_REF="$COMMIT_RANGE"
-if [[ "${COMMIT_RANGE%%..*}" == "${COMMIT_RANGE##*..}" ]]; then
+if [[ "${COMMIT_RANGE%%..*}" == "${COMMIT_RANGE##*..}" && "$FIRST_REPORT_RANGE" == "1" ]]; then
   echo "[info] empty range — diffing against empty tree (root commit only)" >&2
   DIFF_REF="${EMPTY_TREE_SHA}..${TO_SHA}"
+elif [[ "${COMMIT_RANGE%%..*}" == "${COMMIT_RANGE##*..}" ]]; then
+  echo "[info] same-SHA refresh — using empty diff and current docs/backlog context" >&2
 fi
 
 COMMIT_COUNT="$(git -C "$TARGET_DIR" rev-list --count "$COMMIT_RANGE" 2>/dev/null || echo 0)"
-# rev-list count 가 0 이면 (root commit only) 최소 1 로 보정.
-if (( COMMIT_COUNT == 0 )); then
+# rev-list count 가 0 이면 first-report root commit 에서만 최소 1 로 보정.
+if (( COMMIT_COUNT == 0 )) && [[ "$FIRST_REPORT_RANGE" == "1" ]]; then
   COMMIT_COUNT=1
 fi
 COMMIT_LOG="$(git -C "$TARGET_DIR" log --oneline -n "$COMMIT_COUNT" "$TO_SHA" 2>/dev/null || true)"
