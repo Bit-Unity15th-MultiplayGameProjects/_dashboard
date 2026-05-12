@@ -69,6 +69,9 @@
   현재 해결 또는 무효가 확인되면 같은 title 을 `resolved_from_backlog` 에 넣고,
   아직 남았으면 같은 title 을 `backlogs` 에 유지합니다. title rename 으로 조용히
   사라지게 만들면 validator 가 리포트를 폐기합니다.
+- 같은 해결 건을 괄호 설명, 라인 번호, 파일 목록 차이만 있는 title 변형으로
+  여러 번 `resolved_from_backlog` 에 넣지 마세요. 하나의 대표 title 로만 닫고,
+  근거 파일은 `files` 배열에 합칩니다.
 - 단, 필수 Backlog 회계 목록은 "계속 미해결로 유지하라"는 뜻이 아닙니다.
   아래 현재 파일 기반 증거가 항목을 반박하면 반드시 `resolved_from_backlog` 로
   옮깁니다. 예를 들어 title 이 `A`/`B` 혼용을 말하는데 현재 관련 파일에서 `B` 가
@@ -651,6 +654,8 @@ resolved_from_backlog:
   해결·무효·재등장 필요 여부를 확인했는가.
 - `resolved_from_backlog` 에 넣은 title 이 다시 `todos` 또는 `backlogs` 에
   남아있지 않은가.
+- `resolved_from_backlog` 안에 괄호 설명·라인 번호만 다른 사실상 같은 해결 항목을
+  중복으로 넣지 않았는가.
 - 문서 관련 TODO/Backlog 는 현재 프로젝트 문서 스냅샷에 같은 내용이 이미 있으면
   제거하거나 더 좁은 남은 범위로 재작성했는가.
 - `doc_scores` 의 세 축이 현재 프로젝트 문서 스냅샷의 실제 파일/본문 근거를

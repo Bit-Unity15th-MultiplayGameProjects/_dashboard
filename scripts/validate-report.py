@@ -104,6 +104,7 @@ PRIORITY_ORDER: dict[str, int] = {
     "low": 3,
 }
 TITLE_SIMILARITY_THRESHOLD = 0.58
+LEDGER_TITLE_SIMILARITY_THRESHOLD = 0.82
 TITLE_STOP_WORDS = {
     "및", "과", "와", "이", "가", "은", "는", "을", "를", "에", "에서",
     "으로", "로", "의", "도", "또", "또한", "아직", "현재", "기반",
@@ -259,6 +260,39 @@ def duplicate_open_item_titles(fm: dict[str, object]) -> list[tuple[str, str, st
     return duplicates
 
 
+def normalized_title_key(title: str) -> str:
+    return re.sub(r"\s+", " ", title).strip().casefold()
+
+
+def matching_open_record_keys(
+    records: dict[str, dict[str, str]],
+    title: str,
+) -> list[str]:
+    key = normalized_title_key(title)
+    matches: list[str] = []
+    if key and records.get(key, {}).get("status") == "open":
+        matches.append(key)
+
+    for record_key, record in records.items():
+        if record_key == key or record.get("status") != "open":
+            continue
+        existing_title = record.get("title", "")
+        if (
+            existing_title
+            and title_similarity(existing_title, title) >= LEDGER_TITLE_SIMILARITY_THRESHOLD
+        ):
+            matches.append(record_key)
+    return matches
+
+
+def first_matching_open_record_key(
+    records: dict[str, dict[str, str]],
+    title: str,
+) -> str | None:
+    matches = matching_open_record_keys(records, title)
+    return matches[0] if matches else None
+
+
 def frontmatter_from_content(content: str) -> dict[str, object]:
     m = FRONTMATTER_RE.match(content)
     if not m:
@@ -278,12 +312,11 @@ def frontmatter_from_file(path: Path) -> dict[str, object]:
 
 
 def unresolved_backlog_titles_from_reports(reports_dir: Path) -> set[str]:
-    """Return backlog titles not followed by an exact resolved entry.
+    """Return backlog titles not followed by a resolved entry.
 
-    This deliberately uses title equality as the accounting key because the UI
-    and prompt ledger cannot infer that a renamed backlog was intentionally
-    closed. If a stale title is obsolete, the next report must close that exact
-    title in resolved_from_backlog and introduce a new narrowed backlog.
+    Exact title matches are preferred, but high-confidence title variants are
+    folded so one resolved entry can close duplicate historical wording such as
+    parenthetical notes or line-number variants.
     """
 
     records: dict[str, dict[str, str]] = {}
@@ -292,15 +325,19 @@ def unresolved_backlog_titles_from_reports(reports_dir: Path) -> set[str]:
 
         for item in fm.get("resolved_from_backlog") or []:
             title = item_title(item)
-            key = re.sub(r"\s+", " ", title).strip().casefold()
-            if key and key in records:
+            if not title:
+                continue
+            for key in matching_open_record_keys(records, title):
                 records[key]["status"] = "resolved"
 
         for item in fm.get("backlogs") or []:
             title = item_title(item)
             if not title:
                 continue
-            key = re.sub(r"\s+", " ", title).strip().casefold()
+            key = normalized_title_key(title)
+            matching_key = first_matching_open_record_key(records, title)
+            if key not in records and matching_key:
+                key = matching_key
             if key not in records or records[key].get("status") == "resolved":
                 records[key] = {"title": title, "status": "open"}
             else:
