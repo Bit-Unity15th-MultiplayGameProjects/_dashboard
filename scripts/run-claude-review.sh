@@ -17,6 +17,7 @@
 #   MAX_DIFF_BYTES    (선택, 기본 102400=100KB)
 #   MAX_DIFF_LINES    (선택, 기본 3000)    — diff 줄 수 하드 리밋
 #   PROJECT_DOCS_MAX_BYTES (선택, 기본 24576) — 현재 문서 스냅샷 상한
+#   OPEN_ITEMS_MAX    (선택, 기본 240) — 누적 TODO/Backlog ledger 항목 상한
 #   TARGET_DIR        (선택, 기본 "target-repo")  — clone 경로
 #   OUTPUT_PATH       (선택, 기본 "/tmp/final-prompt.md")
 #   CLONE_FACTS_PATH  (선택, 기본 OUTPUT_PATH 와 같은 디렉토리 + ".clone-facts.json")
@@ -40,6 +41,7 @@ TO_SHA="${3:?to_sha required}"
 MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-102400}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-3000}"
 PROJECT_DOCS_MAX_BYTES="${PROJECT_DOCS_MAX_BYTES:-24576}"
+OPEN_ITEMS_MAX="${OPEN_ITEMS_MAX:-240}"
 TARGET_DIR="${TARGET_DIR:-target-repo}"
 OUTPUT_PATH="${OUTPUT_PATH:-/tmp/final-prompt.md}"
 CLONE_FACTS_PATH="${CLONE_FACTS_PATH:-${OUTPUT_PATH%.md}.clone-facts.json}"
@@ -288,6 +290,22 @@ if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
   fi
 fi
 
+# 직전 리포트만 보면 예전에 해결 처리 없이 빠진 TODO/Backlog 를 놓친다.
+# 프로젝트 전체 report history 에서 최신 open item 과 누락 가능 item 을 모아
+# 매 리포트 생성 시 전수 재판정 대상으로 전달한다.
+OPEN_ITEMS_LEDGER="(이전 리포트가 없어 누적 open item 없음)"
+REPORTS_DIR="$ROOT_DIR/reports/$REPO"
+if [[ -d "$REPORTS_DIR" ]]; then
+  LEDGER_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" open-items \
+      "$REPORTS_DIR" --max-items "$OPEN_ITEMS_MAX" 2>/dev/null || true
+  )"
+  if [[ -n "$LEDGER_EXTRACTED" ]]; then
+    OPEN_ITEMS_LEDGER="$LEDGER_EXTRACTED"
+  fi
+fi
+echo "[info] open item ledger ($(printf '%s' "$OPEN_ITEMS_LEDGER" | wc -c) bytes)" >&2
+
 # ---- _sample/docs rubric 레퍼런스 ----------------------------------------
 # 문서 완성도 평가 rubric. _sample 은 org 관리자 통제 하의 정적 참조 repo.
 # 매 run 얕은 clone (가벼움) — 항상 최신 기준을 사용.
@@ -359,6 +377,7 @@ DIFF_CONTENT="$DIFF_CONTENT" \
 LAST_REPORT_DATE="$LAST_REPORT_DATE" \
 PREVIOUS_TODOS="$PREVIOUS_TODOS" \
 PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
+OPEN_ITEMS_LEDGER="$OPEN_ITEMS_LEDGER" \
 SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
 PROJECT_DOCS_SNAPSHOT="$PROJECT_DOCS_SNAPSHOT" \
 python3 - "$TEMPLATE" "$OUTPUT_PATH" <<'PY'
@@ -376,7 +395,7 @@ tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 # 통제지만 혹시 docs 에 예시 태그가 쓰이면 의도치 않게 경계가 깨질 수 있어 함께 sanitize.
 STUDENT_CONTROLLED = {
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
-    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
     "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
@@ -390,7 +409,7 @@ def _scrub(s: str) -> str:
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
-    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
     "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 ):
     value = _scrub(os.environ.get(key, ""))

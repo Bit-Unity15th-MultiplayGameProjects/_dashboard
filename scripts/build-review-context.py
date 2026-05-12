@@ -9,6 +9,7 @@ in one place for CI and local dry-runs.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import os
 import re
 import sys
@@ -80,6 +81,8 @@ DOC_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 
+PRIORITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
 
 def _load_yaml_frontmatter(path: Path) -> dict[str, Any]:
     try:
@@ -135,6 +138,59 @@ def _format_item(item: Any) -> str | None:
     return f"- {title.strip()}{suffix}"
 
 
+def _item_title(item: Any) -> str | None:
+    if isinstance(item, str):
+        title = item.strip()
+        return title or None
+    if isinstance(item, dict) and isinstance(item.get("title"), str):
+        title = item["title"].strip()
+        return title or None
+    return None
+
+
+def _normalize_title(title: str) -> str:
+    return re.sub(r"\s+", " ", title).strip().casefold()
+
+
+def _report_sort_key(path: Path) -> tuple[datetime, str]:
+    # reports use filenames like 2026-05-11T14-24-46Z.md.
+    slug = path.stem
+    match = re.match(
+        r"^(\d{4}-\d{2}-\d{2})[Tt](\d{2})-(\d{2})-(\d{2})([Zz])$",
+        slug,
+    )
+    if match:
+        iso = f"{match.group(1)}T{match.group(2)}:{match.group(3)}:{match.group(4)}+00:00"
+        try:
+            return (datetime.fromisoformat(iso), path.as_posix())
+        except ValueError:
+            pass
+
+    fm = _load_yaml_frontmatter(path)
+    date = fm.get("date")
+    if isinstance(date, str):
+        try:
+            return (datetime.fromisoformat(date.replace("Z", "+00:00")), path.as_posix())
+        except ValueError:
+            pass
+    return (datetime.fromtimestamp(0, timezone.utc), path.as_posix())
+
+
+def _format_ledger_item(record: dict[str, Any]) -> str:
+    extras = [
+        str(record["field"]),
+        f"seen {record['reports_seen']}x",
+        f"{record['first_seen']} -> {record['last_seen']}",
+    ]
+    priority = record.get("priority")
+    if priority:
+        extras.insert(1, str(priority))
+    files = record.get("files") or []
+    if files:
+        extras.append("files: " + ", ".join(files[:3]))
+    return f"- {record['title']}  [{'; '.join(extras)}]"
+
+
 def previous_items(args: argparse.Namespace) -> int:
     fm = _load_yaml_frontmatter(Path(args.report))
     items = fm.get(args.field) or []
@@ -145,6 +201,137 @@ def previous_items(args: argparse.Namespace) -> int:
     if lines:
         sys.stdout.write("\n".join(lines))
         sys.stdout.write("\n")
+    return 0
+
+
+def open_items(args: argparse.Namespace) -> int:
+    reports_dir = Path(args.reports_dir)
+    if not reports_dir.is_dir():
+        sys.stdout.write("(이전 리포트 디렉토리를 찾지 못함)\n")
+        return 0
+
+    reports = sorted(reports_dir.glob("*.md"), key=_report_sort_key)
+    if not reports:
+        sys.stdout.write("(이전 리포트가 없어 누적 open item 없음)\n")
+        return 0
+
+    records: dict[str, dict[str, Any]] = {}
+    latest_open_keys: set[str] = set()
+
+    for idx, report in enumerate(reports):
+        rel_report = report.relative_to(reports_dir.parent).as_posix()
+        fm = _load_yaml_frontmatter(report)
+        is_latest = idx == len(reports) - 1
+
+        for item in fm.get("resolved_from_backlog") or []:
+            title = _item_title(item)
+            if not title:
+                continue
+            key = _normalize_title(title)
+            record = records.get(key)
+            if record:
+                record["status"] = "resolved"
+                record["resolved_seen"] = rel_report
+
+        for field in ("todos", "backlogs"):
+            values = fm.get(field) or []
+            if not isinstance(values, list):
+                continue
+            for item in values:
+                title = _item_title(item)
+                if not title:
+                    continue
+
+                key = _normalize_title(title)
+                if is_latest:
+                    latest_open_keys.add(key)
+
+                record = records.get(key)
+                if record is None or record.get("status") == "resolved":
+                    record = {
+                        "title": title,
+                        "field": field,
+                        "first_seen": rel_report,
+                        "last_seen": rel_report,
+                        "reports_seen": 0,
+                        "status": "open",
+                    }
+                    records[key] = record
+
+                record["title"] = title
+                record["field"] = field
+                record["last_seen"] = rel_report
+                record["reports_seen"] = int(record.get("reports_seen", 0)) + 1
+                record["status"] = "open"
+
+                if isinstance(item, dict):
+                    priority = item.get("priority")
+                    if isinstance(priority, str) and priority.strip():
+                        record["priority"] = priority.strip()
+                    files = item.get("files")
+                    if isinstance(files, list):
+                        clean_files = [
+                            str(f).strip()
+                            for f in files
+                            if isinstance(f, str) and f.strip()
+                        ]
+                        if clean_files:
+                            record["files"] = clean_files
+                    details = item.get("details")
+                    if isinstance(details, str) and details.strip():
+                        record["details"] = details.strip()
+
+    latest_records = [
+        records[key]
+        for key in latest_open_keys
+        if key in records and records[key].get("status") == "open"
+    ]
+    dormant_records = [
+        record
+        for key, record in records.items()
+        if record.get("status") == "open" and key not in latest_open_keys
+    ]
+
+    latest_records.sort(
+        key=lambda r: (
+            PRIORITY_ORDER.get(str(r.get("priority", "")), 9),
+            str(r.get("field", "")),
+            str(r.get("title", "")),
+        )
+    )
+    dormant_records.sort(
+        key=lambda r: (
+            str(r.get("last_seen", "")),
+            PRIORITY_ORDER.get(str(r.get("priority", "")), 9),
+            str(r.get("title", "")),
+        ),
+        reverse=True,
+    )
+
+    max_items = max(1, int(args.max_items))
+    out: list[str] = []
+    out.append("최신 리포트 open items (반드시 전부 재판정):")
+    if latest_records:
+        for record in latest_records[:max_items]:
+            out.append(_format_ledger_item(record))
+        if len(latest_records) > max_items:
+            out.append(f"- ... [{len(latest_records) - max_items} more latest open items omitted] ...")
+    else:
+        out.append("- (최신 리포트에 open TODO/Backlog 없음)")
+
+    out.append("")
+    out.append("과거 open item 중 resolved_from_backlog 기록 없이 최신 리포트에서 사라진 항목:")
+    out.append("(누락/관성 삭제 가능성이 있으므로 이번 리뷰에서 해결·무효·재등장 여부를 재확인)")
+    if dormant_records:
+        for record in dormant_records[:max_items]:
+            out.append(_format_ledger_item(record))
+        if len(dormant_records) > max_items:
+            out.append(f"- ... [{len(dormant_records) - max_items} more dormant open items omitted] ...")
+    else:
+        out.append("- (해결 기록 없이 사라진 누적 open item 없음)")
+
+    sys.stdout.write("\n".join(out).rstrip())
+    sys.stdout.write("\n")
     return 0
 
 
@@ -272,6 +459,11 @@ def main() -> int:
     previous.add_argument("report")
     previous.add_argument("field", choices=("todos", "backlogs", "resolved_from_backlog"))
     previous.set_defaults(func=previous_items)
+
+    ledger = subparsers.add_parser("open-items")
+    ledger.add_argument("reports_dir")
+    ledger.add_argument("--max-items", type=int, default=240)
+    ledger.set_defaults(func=open_items)
 
     docs = subparsers.add_parser("docs-snapshot")
     docs.add_argument("repo")

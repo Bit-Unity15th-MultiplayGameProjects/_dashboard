@@ -13,6 +13,7 @@
 #   ORG              - org 이름 (기본: Bit-Unity15th-MultiplayGameProjects)
 #   MAX_DIFF_LINES   - DIFF_CONTENT 에 포함할 최대 줄 수 (기본: 2000, 초과 시 truncate)
 #   PROJECT_DOCS_MAX_BYTES - 현재 문서 스냅샷 상한 (기본: 24576)
+#   OPEN_ITEMS_MAX   - 누적 TODO/Backlog ledger 항목 상한 (기본: 240)
 #   CODEX_BIN        - codex CLI 경로 (기본: $(which codex))
 #   CODEX_MODEL      - Codex 모델 (기본: gpt-5.5)
 #
@@ -56,6 +57,7 @@ done
 ORG="${ORG:-Bit-Unity15th-MultiplayGameProjects}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-2000}"
 PROJECT_DOCS_MAX_BYTES="${PROJECT_DOCS_MAX_BYTES:-24576}"
+OPEN_ITEMS_MAX="${OPEN_ITEMS_MAX:-240}"
 CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
 CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
 
@@ -148,6 +150,19 @@ if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
     PREVIOUS_BACKLOG="$BACKLOG_EXTRACTED"
   fi
 fi
+
+OPEN_ITEMS_LEDGER="(이전 리포트가 없어 누적 open item 없음)"
+REPORTS_DIR="$ROOT_DIR/reports/$PROJECT_NAME"
+if [[ -d "$REPORTS_DIR" ]]; then
+  LEDGER_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" open-items \
+      "$REPORTS_DIR" --max-items "$OPEN_ITEMS_MAX" 2>/dev/null || true
+  )"
+  if [[ -n "$LEDGER_EXTRACTED" ]]; then
+    OPEN_ITEMS_LEDGER="$LEDGER_EXTRACTED"
+  fi
+fi
+echo "[info] open item ledger ($(printf '%s' "$OPEN_ITEMS_LEDGER" | wc -c) bytes)" >&2
 
 # ---- _sample/docs rubric (로컬 캐시가 있으면 사용) -----------------------
 # 로컬 dry-run 은 굳이 clone 하지 않고 fallback. CI (run-claude-review.sh) 는
@@ -247,6 +262,7 @@ FILLED_PROMPT="$(
   LAST_REPORT_DATE="$LAST_REPORT_DATE" \
   PREVIOUS_TODOS="$PREVIOUS_TODOS" \
   PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
+  OPEN_ITEMS_LEDGER="$OPEN_ITEMS_LEDGER" \
   SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
   PROJECT_DOCS_SNAPSHOT="$PROJECT_DOCS_SNAPSHOT" \
   python3 - "$TEMPLATE" <<'PY'
@@ -259,7 +275,7 @@ with open(path, "r", encoding="utf-8") as f:
 tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 STUDENT_CONTROLLED = {
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
-    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
     "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
@@ -270,7 +286,7 @@ def _scrub(s: str) -> str:
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
-    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
     "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 ):
     value = _scrub(os.environ.get(key, ""))
