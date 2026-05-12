@@ -14,6 +14,7 @@
 #   MAX_DIFF_LINES   - DIFF_CONTENT 에 포함할 최대 줄 수 (기본: 2000, 초과 시 truncate)
 #   PROJECT_DOCS_MAX_BYTES - 현재 문서 스냅샷 상한 (기본: 24576)
 #   OPEN_ITEMS_MAX   - 누적 TODO/Backlog ledger 항목 상한 (기본: 240)
+#   BACKLOG_EVIDENCE_MAX_BYTES - backlog 현재 파일 증거 상한 (기본: 65536)
 #   CODEX_BIN        - codex CLI 경로 (기본: $(which codex))
 #   CODEX_MODEL      - Codex 모델 (기본: gpt-5.5)
 #
@@ -58,6 +59,7 @@ ORG="${ORG:-Bit-Unity15th-MultiplayGameProjects}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-2000}"
 PROJECT_DOCS_MAX_BYTES="${PROJECT_DOCS_MAX_BYTES:-24576}"
 OPEN_ITEMS_MAX="${OPEN_ITEMS_MAX:-240}"
+BACKLOG_EVIDENCE_MAX_BYTES="${BACKLOG_EVIDENCE_MAX_BYTES:-65536}"
 CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
 CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
 
@@ -176,6 +178,20 @@ if [[ -d "$REPORTS_DIR" ]]; then
 fi
 echo "[info] required backlog ledger ($(printf '%s' "$REQUIRED_BACKLOG_LEDGER" | wc -c) bytes)" >&2
 
+BACKLOG_EVIDENCE_SNAPSHOT="(누적 unresolved backlog 없음)"
+if [[ -d "$REPORTS_DIR" ]]; then
+  BACKLOG_EVIDENCE_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" backlog-evidence \
+      "$REPORTS_DIR" "$REPO_DIR" \
+      --max-items "$OPEN_ITEMS_MAX" \
+      --max-bytes "$BACKLOG_EVIDENCE_MAX_BYTES" 2>/dev/null || true
+  )"
+  if [[ -n "$BACKLOG_EVIDENCE_EXTRACTED" ]]; then
+    BACKLOG_EVIDENCE_SNAPSHOT="$BACKLOG_EVIDENCE_EXTRACTED"
+  fi
+fi
+echo "[info] backlog evidence snapshot ($(printf '%s' "$BACKLOG_EVIDENCE_SNAPSHOT" | wc -c) bytes)" >&2
+
 # ---- _sample/docs rubric (로컬 캐시가 있으면 사용) -----------------------
 # 로컬 dry-run 은 굳이 clone 하지 않고 fallback. CI (run-claude-review.sh) 는
 # 매 run 얕은 clone 으로 최신 rubric 을 보장.
@@ -276,6 +292,7 @@ FILLED_PROMPT="$(
   PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
   OPEN_ITEMS_LEDGER="$OPEN_ITEMS_LEDGER" \
   REQUIRED_BACKLOG_LEDGER="$REQUIRED_BACKLOG_LEDGER" \
+  BACKLOG_EVIDENCE_SNAPSHOT="$BACKLOG_EVIDENCE_SNAPSHOT" \
   SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
   PROJECT_DOCS_SNAPSHOT="$PROJECT_DOCS_SNAPSHOT" \
   python3 - "$TEMPLATE" <<'PY'
@@ -289,7 +306,7 @@ tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 STUDENT_CONTROLLED = {
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
     "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
-    "REQUIRED_BACKLOG_LEDGER",
+    "REQUIRED_BACKLOG_LEDGER", "BACKLOG_EVIDENCE_SNAPSHOT",
     "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
@@ -301,8 +318,8 @@ for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
     "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
-    "REQUIRED_BACKLOG_LEDGER", "SAMPLE_DOCS_REFERENCE",
-    "PROJECT_DOCS_SNAPSHOT",
+    "REQUIRED_BACKLOG_LEDGER", "BACKLOG_EVIDENCE_SNAPSHOT",
+    "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 ):
     value = _scrub(os.environ.get(key, ""))
     if key in STUDENT_CONTROLLED:

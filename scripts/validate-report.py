@@ -157,6 +157,37 @@ def titles_from_items(items: object) -> set[str]:
     return {title for item in items if (title := item_title(item))}
 
 
+def title_alias_key(title: str) -> str:
+    """Coarse key used only to reject duplicate open variants in one report."""
+
+    text = re.sub(r"`([^`]*)`", r"\1", title)
+    text = re.sub(r"\([^)]*\)|（[^）]*）", "", text)
+    text = re.sub(r"\[[^\]]*\]|【[^】]*】", "", text)
+    text = re.sub(r"[\s\W_]+", "", text, flags=re.UNICODE)
+    return text.casefold()
+
+
+def duplicate_alias_titles(items: object) -> list[tuple[str, str]]:
+    if not isinstance(items, list):
+        return []
+
+    seen: dict[str, str] = {}
+    duplicates: list[tuple[str, str]] = []
+    for item in items:
+        title = item_title(item)
+        if not title:
+            continue
+        key = title_alias_key(title)
+        if not key:
+            continue
+        previous = seen.get(key)
+        if previous is not None and previous != title:
+            duplicates.append((previous, title))
+        else:
+            seen[key] = title
+    return duplicates
+
+
 def frontmatter_from_content(content: str) -> dict[str, object]:
     m = FRONTMATTER_RE.match(content)
     if not m:
@@ -450,6 +481,17 @@ def validate(
             errors.append(
                 "resolved_from_backlog 항목이 todos/backlogs 에도 남아있음: "
                 + ", ".join(overlap)
+            )
+
+        backlog_alias_duplicates = duplicate_alias_titles(fm.get("backlogs") or [])
+        if backlog_alias_duplicates:
+            formatted = "; ".join(
+                f"{first!r} <-> {second!r}"
+                for first, second in backlog_alias_duplicates
+            )
+            errors.append(
+                "backlogs contains duplicate title variants for the same open issue: "
+                + formatted
             )
 
         if enforce_backlog_carryover and previous_frontmatter:
