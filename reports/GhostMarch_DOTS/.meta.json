@@ -1,8 +1,8 @@
 {
-  "last_sha": "472aea23b6184739957235df1b9bbed6a9273b1f",
-  "last_report_at": "2026-05-12T01:16:45+00:00",
-  "last_report_file": "reports/GhostMarch_DOTS/2026-05-12T01-15-19Z.md",
-  "report_count": 11,
+  "last_sha": "8b145959f45a0ca84fb73473a6a5456c9e5afd92",
+  "last_report_at": "2026-05-12T01:31:04+00:00",
+  "last_report_file": "reports/GhostMarch_DOTS/2026-05-12T01-28-57Z.md",
+  "report_count": 12,
   "recent_report_ats": [
     "2026-05-02T17:07:13+00:00",
     "2026-05-03T04:05:00+00:00",
@@ -14,13 +14,14 @@
     "2026-05-11T11:53:34+00:00",
     "2026-05-11T14:18:54+00:00",
     "2026-05-11T16:51:59+00:00",
-    "2026-05-12T01:16:45+00:00"
+    "2026-05-12T01:16:45+00:00",
+    "2026-05-12T01:31:04+00:00"
   ],
   "repo_full_name": "Bit-Unity15th-MultiplayGameProjects/GhostMarch_DOTS",
   "repo_id": 1227274801,
   "repo_name": "GhostMarch_DOTS",
   "repo_node_id": "R_kgDOSSa6MQ",
-  "last_commit_at": "2026-05-12T10:13:32+09:00",
+  "last_commit_at": "2026-05-12T10:26:25+09:00",
   "contributors": [
     "Nullma",
     "NullMa"
