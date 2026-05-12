@@ -463,6 +463,10 @@ export interface ManagementSignal {
   todoCount: number;
   backlogCount: number;
   resolvedCount: number;
+  recentResolvedBacklogs: number;
+  recentNewBacklogs: number;
+  improvementBalance: number;
+  improvementStatus: ImprovementStatus;
   criticalOpen: number;
   highOpen: number;
   oldestBacklogAge: number;
@@ -474,6 +478,35 @@ export interface ManagementSignal {
   attention: AttentionLevel;
   score: number;
   reasons: string[];
+}
+
+export interface ImprovementSnapshot {
+  date: string;
+  isoDate: string;
+  slug: string;
+  progress: number;
+  progressDelta: number;
+  docAverage: number;
+  docDelta: number;
+  newBacklogs: number;
+  resolvedBacklogs: number;
+  carryOver: number;
+  staleBacklogs: number;
+}
+
+export type ImprovementStatus = "improving" | "steady" | "stalled" | "regressing";
+
+export interface ImprovementTrend {
+  snapshots: ImprovementSnapshot[];
+  recentWindow: number;
+  recentNewBacklogs: number;
+  recentResolvedBacklogs: number;
+  recentProgressDelta: number;
+  recentDocDelta: number;
+  latestCarryOver: number;
+  latestStaleBacklogs: number;
+  balance: number;
+  status: ImprovementStatus;
 }
 
 function daysSince(iso: string): number {
@@ -488,6 +521,104 @@ function docAverageFromSnapshot(s: ChartSnapshot): number {
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+function itemIdentityKeys(items: RawItem[] | undefined): Set<string> {
+  return new Set(
+    normalizeItems(items)
+      .map((item) => titleAliasKey(item.title))
+      .filter(Boolean),
+  );
+}
+
+export function improvementTrend(
+  p: ProjectSummary,
+  recentWindowSize = 5,
+): ImprovementTrend {
+  const chrono = [...p.reports].reverse();
+  const snapshots: ImprovementSnapshot[] = [];
+  let activeBacklogAges = new Map<string, number>();
+  let previousBacklogs = new Set<string>();
+  let previousProgress: number | undefined;
+  let previousDocAverage: number | undefined;
+
+  for (const [index, report] of chrono.entries()) {
+    const data = report.entry.data;
+    const isoDate = reportUpdatedAt(report);
+    const backlogs = itemIdentityKeys(data.backlogs);
+    const resolved = itemIdentityKeys(data.resolved_from_backlog);
+    for (const key of resolved) activeBacklogAges.delete(key);
+
+    const nextAges = new Map<string, number>();
+    for (const key of backlogs) {
+      nextAges.set(key, (activeBacklogAges.get(key) ?? 0) + 1);
+    }
+    activeBacklogAges = nextAges;
+
+    const docAverage = round1(
+      (data.doc_scores.design + data.doc_scores.technical + data.doc_scores.spec) / 3,
+    );
+
+    snapshots.push({
+      date: new Date(isoDate).toISOString().slice(0, 10),
+      isoDate,
+      slug: report.slug,
+      progress: data.progress_estimate,
+      progressDelta:
+        previousProgress === undefined ? 0 : data.progress_estimate - previousProgress,
+      docAverage,
+      docDelta:
+        previousDocAverage === undefined ? 0 : round1(docAverage - previousDocAverage),
+      newBacklogs:
+        index === 0
+          ? 0
+          : [...backlogs].filter((key) => !previousBacklogs.has(key)).length,
+      resolvedBacklogs: resolved.size,
+      carryOver: backlogs.size,
+      staleBacklogs: [...activeBacklogAges.values()].filter((age) => age >= 3).length,
+    });
+
+    previousBacklogs = backlogs;
+    previousProgress = data.progress_estimate;
+    previousDocAverage = docAverage;
+  }
+
+  const latest = snapshots[snapshots.length - 1];
+  const recentWindow = Math.min(recentWindowSize, snapshots.length);
+  const recent = snapshots.slice(-recentWindow);
+  const recentFirst = recent[0] ?? latest;
+  const recentNewBacklogs = recent.reduce((sum, item) => sum + item.newBacklogs, 0);
+  const recentResolvedBacklogs = recent.reduce(
+    (sum, item) => sum + item.resolvedBacklogs,
+    0,
+  );
+  const recentProgressDelta =
+    latest && recentFirst ? latest.progress - recentFirst.progress : 0;
+  const recentDocDelta =
+    latest && recentFirst ? round1(latest.docAverage - recentFirst.docAverage) : 0;
+  const balance = recentResolvedBacklogs - recentNewBacklogs;
+
+  const status: ImprovementStatus =
+    balance < 0 && recentProgressDelta <= 0
+      ? "regressing"
+      : balance > 0 || recentProgressDelta > 0 || recentDocDelta > 0
+        ? "improving"
+        : latest && latest.staleBacklogs > 0
+          ? "stalled"
+          : "steady";
+
+  return {
+    snapshots,
+    recentWindow,
+    recentNewBacklogs,
+    recentResolvedBacklogs,
+    recentProgressDelta,
+    recentDocDelta,
+    latestCarryOver: latest?.carryOver ?? 0,
+    latestStaleBacklogs: latest?.staleBacklogs ?? 0,
+    balance,
+    status,
+  };
 }
 
 export function managementSignal(p: ProjectSummary): ManagementSignal {
@@ -512,6 +643,7 @@ export function managementSignal(p: ProjectSummary): ManagementSignal {
   const docAverage = docAverageFromSnapshot(latest);
   const docDelta = docAverage - docAverageFromSnapshot(first);
   const progressDelta = latest.progress - first.progress;
+  const improvement = improvementTrend(p);
 
   let score = 0;
   score += latest.risk === "high" ? 60 : latest.risk === "medium" ? 28 : 8;
@@ -551,6 +683,10 @@ export function managementSignal(p: ProjectSummary): ManagementSignal {
     todoCount: todos.length,
     backlogCount: backlogs.length,
     resolvedCount: resolved.length,
+    recentResolvedBacklogs: improvement.recentResolvedBacklogs,
+    recentNewBacklogs: improvement.recentNewBacklogs,
+    improvementBalance: improvement.balance,
+    improvementStatus: improvement.status,
     criticalOpen,
     highOpen,
     oldestBacklogAge: oldest?.age ?? 0,

@@ -4,11 +4,11 @@ import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import Footer from "../../components/Footer.astro";
 import RiskBadge from "../../components/RiskBadge.astro";
-import RiskStrip from "../../components/RiskStrip.astro";
 import Tag from "../../components/Tag.astro";
 import Panel from "../../components/Panel.astro";
 import MetricCard from "../../components/MetricCard.astro";
 import ProgressPanel from "../../components/ProgressPanel.astro";
+import ImprovementStrip from "../../components/ImprovementStrip.astro";
 import StepChart from "../../components/StepChart.astro";
 import MultiLineChart from "../../components/MultiLineChart.astro";
 import SmallMultiple from "../../components/SmallMultiple.astro";
@@ -20,6 +20,7 @@ import ProjectChat from "../../components/ProjectChat.astro";
 import {
   getProjectSummaries,
   chronologicalSnapshots,
+  improvementTrend,
   backlogWithAges,
   resolvedHistory,
   normalizeItems,
@@ -58,8 +59,17 @@ const latest = reports[0]!;
 const latestData = latest.entry.data;
 const latestReportAt = lastReportAt(summary);
 const snapshots = chronologicalSnapshots(summary);
-const first = snapshots[0];
 const last = snapshots[snapshots.length - 1];
+const improvement = improvementTrend(summary);
+const improvementPoints = improvement.snapshots.slice(-12);
+const improvementValue = {
+  improving: "IMPROVING",
+  steady: "STEADY",
+  stalled: "STALLED",
+  regressing: "REGRESSING",
+}[improvement.status];
+const recentNewLabel =
+  improvement.recentNewBacklogs > 0 ? `-${improvement.recentNewBacklogs}` : "0";
 
 // 초기 렌더는 priority desc (critical 먼저) 로 정렬. JS sort 가 이후 재정렬.
 const carryOver = backlogWithAges(summary).slice().sort(
@@ -71,11 +81,6 @@ const resolved = resolvedHistory(summary);
 const todos = normalizeItems(latestData.todos).sort(
   (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
 );
-
-const docAvgLatest = (last.design + last.technical + last.spec) / 3;
-const docAvgFirst = (first.design + first.technical + first.spec) / 3;
-const docAvgDelta = docAvgLatest - docAvgFirst;
-const progressDelta = last.progress - first.progress;
 
 function reportHref(slug: string) {
   return `${base}/${project}/${slug}/`;
@@ -194,21 +199,41 @@ function formatDateFull(iso: string) {
         updatedAt={latestReportAt}
       />
 
-      <MetricCard label="risk trend" value={last.risk.toUpperCase()}>
+      <MetricCard
+        label="improvement trend"
+        value={improvementValue}
+        delta={improvement.balance}
+        deltaLabel="net backlog"
+      >
         <div
           style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"
         >
-          <RiskStrip risks={snapshots.map((s) => s.risk)} />
+          <ImprovementStrip points={improvementPoints} />
           <span style="font-family:var(--mono);font-size:10px;color:var(--fg-3);">
-            {snapshots.length} reports
+            last {improvement.recentWindow} reports
           </span>
         </div>
         <div
-          style="display:flex;align-items:baseline;gap:6px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+          style="display:flex;align-items:baseline;gap:7px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--fg-3);flex-wrap:wrap;"
         >
-          <span>progress {progressDelta >= 0 ? "+" : ""}{progressDelta}pts</span>
+          <span style="color:var(--risk-low);">resolved +{improvement.recentResolvedBacklogs}</span>
+          <span style="color:var(--risk-high);">new {recentNewLabel}</span>
           <span>·</span>
-          <span>docs {docAvgDelta >= 0 ? "+" : ""}{docAvgDelta.toFixed(1)}</span>
+          <span>carry {improvement.latestCarryOver}</span>
+          <span>stale {improvement.latestStaleBacklogs}</span>
+        </div>
+        <div
+          style="display:flex;align-items:baseline;gap:6px;margin-top:5px;font-family:var(--mono);font-size:11px;color:var(--fg-3);"
+        >
+          <span>
+            progress {improvement.recentProgressDelta >= 0 ? "+" : ""}
+            {improvement.recentProgressDelta}pts
+          </span>
+          <span>·</span>
+          <span>
+            docs {improvement.recentDocDelta >= 0 ? "+" : ""}
+            {improvement.recentDocDelta.toFixed(1)}
+          </span>
         </div>
       </MetricCard>
     </section>
