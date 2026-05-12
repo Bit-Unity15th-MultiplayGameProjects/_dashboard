@@ -12,6 +12,8 @@
 # 환경변수:
 #   ORG              - org 이름 (기본: Bit-Unity15th-MultiplayGameProjects)
 #   MAX_DIFF_LINES   - DIFF_CONTENT 에 포함할 최대 줄 수 (기본: 2000, 초과 시 truncate)
+#   PROJECT_DOCS_MAX_BYTES - 현재 문서 스냅샷 상한 (기본: 24576)
+#   OPEN_ITEMS_MAX   - 누적 TODO/Backlog ledger 항목 상한 (기본: 240)
 #   CODEX_BIN        - codex CLI 경로 (기본: $(which codex))
 #   CODEX_MODEL      - Codex 모델 (기본: gpt-5.5)
 #
@@ -54,6 +56,8 @@ done
 
 ORG="${ORG:-Bit-Unity15th-MultiplayGameProjects}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-2000}"
+PROJECT_DOCS_MAX_BYTES="${PROJECT_DOCS_MAX_BYTES:-24576}"
+OPEN_ITEMS_MAX="${OPEN_ITEMS_MAX:-240}"
 CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
 CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
 
@@ -115,49 +119,50 @@ if [[ -f "$META_FILE" ]]; then
   )"
 fi
 
-# ---- 이전 backlog 추출 ----------------------------------------------------
+# ---- 현재 문서 스냅샷 -----------------------------------------------------
 
+PROJECT_DOCS_SNAPSHOT="$(
+  python3 "$SCRIPT_DIR/build-review-context.py" docs-snapshot "$REPO_DIR" \
+    --max-bytes "$PROJECT_DOCS_MAX_BYTES" 2>/dev/null || true
+)"
+if [[ -z "$PROJECT_DOCS_SNAPSHOT" ]]; then
+  PROJECT_DOCS_SNAPSHOT="(현재 repo에서 문서 후보 파일을 찾지 못했거나 스냅샷 생성 실패)"
+fi
+echo "[info] project docs snapshot ($(printf '%s' "$PROJECT_DOCS_SNAPSHOT" | wc -c) bytes)" >&2
+
+# ---- 이전 todo/backlog 추출 ----------------------------------------------
+
+PREVIOUS_TODOS="(첫 리포트이거나 이전 리포트에 todo 기록이 없음)"
 PREVIOUS_BACKLOG="(첫 리포트이거나 이전 리포트에 backlog 기록이 없음)"
 if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
-  EXTRACTED="$(
-    python3 - "$ROOT_DIR/$LAST_REPORT_FILE" <<'PY'
-import re, sys
-try:
-    import yaml
-except ImportError:
-    sys.exit(0)
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        content = f.read()
-except OSError:
-    sys.exit(0)
-m = re.match(r"^\s*---\n(.*?)\n---", content, re.DOTALL)
-if not m:
-    sys.exit(0)
-try:
-    fm = yaml.safe_load(m.group(1)) or {}
-except yaml.YAMLError:
-    sys.exit(0)
-for item in fm.get("backlogs") or []:
-    # string / {title, files?} 둘 다 처리.
-    if isinstance(item, str):
-        print(f"- {item}")
-    elif isinstance(item, dict):
-        title = item.get("title")
-        if not isinstance(title, str):
-            continue
-        files = item.get("files") or []
-        if isinstance(files, list) and files:
-            joined = ", ".join(str(f) for f in files if isinstance(f, str))
-            print(f"- {title}  [files: {joined}]")
-        else:
-            print(f"- {title}")
-PY
+  TODO_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" previous-items \
+      "$ROOT_DIR/$LAST_REPORT_FILE" todos 2>/dev/null || true
   )"
-  if [[ -n "$EXTRACTED" ]]; then
-    PREVIOUS_BACKLOG="$EXTRACTED"
+  BACKLOG_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" previous-items \
+      "$ROOT_DIR/$LAST_REPORT_FILE" backlogs 2>/dev/null || true
+  )"
+  if [[ -n "$TODO_EXTRACTED" ]]; then
+    PREVIOUS_TODOS="$TODO_EXTRACTED"
+  fi
+  if [[ -n "$BACKLOG_EXTRACTED" ]]; then
+    PREVIOUS_BACKLOG="$BACKLOG_EXTRACTED"
   fi
 fi
+
+OPEN_ITEMS_LEDGER="(이전 리포트가 없어 누적 open item 없음)"
+REPORTS_DIR="$ROOT_DIR/reports/$PROJECT_NAME"
+if [[ -d "$REPORTS_DIR" ]]; then
+  LEDGER_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" open-items \
+      "$REPORTS_DIR" --max-items "$OPEN_ITEMS_MAX" 2>/dev/null || true
+  )"
+  if [[ -n "$LEDGER_EXTRACTED" ]]; then
+    OPEN_ITEMS_LEDGER="$LEDGER_EXTRACTED"
+  fi
+fi
+echo "[info] open item ledger ($(printf '%s' "$OPEN_ITEMS_LEDGER" | wc -c) bytes)" >&2
 
 # ---- _sample/docs rubric (로컬 캐시가 있으면 사용) -----------------------
 # 로컬 dry-run 은 굳이 clone 하지 않고 fallback. CI (run-claude-review.sh) 는
@@ -255,8 +260,11 @@ FILLED_PROMPT="$(
   DIFF_STAT="$DIFF_STAT" \
   DIFF_CONTENT="$DIFF_CONTENT" \
   LAST_REPORT_DATE="$LAST_REPORT_DATE" \
+  PREVIOUS_TODOS="$PREVIOUS_TODOS" \
   PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
+  OPEN_ITEMS_LEDGER="$OPEN_ITEMS_LEDGER" \
   SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
+  PROJECT_DOCS_SNAPSHOT="$PROJECT_DOCS_SNAPSHOT" \
   python3 - "$TEMPLATE" <<'PY'
 import os, sys, re
 path = sys.argv[1]
@@ -267,7 +275,8 @@ with open(path, "r", encoding="utf-8") as f:
 tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 STUDENT_CONTROLLED = {
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
-    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
+    "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
 
@@ -277,7 +286,8 @@ def _scrub(s: str) -> str:
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
-    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
+    "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 ):
     value = _scrub(os.environ.get(key, ""))
     if key in STUDENT_CONTROLLED:

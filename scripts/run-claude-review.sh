@@ -16,6 +16,8 @@
 #   GH_TOKEN          (필수; GIT_ASKPASS 기반 HTTPS clone 인증용)
 #   MAX_DIFF_BYTES    (선택, 기본 102400=100KB)
 #   MAX_DIFF_LINES    (선택, 기본 3000)    — diff 줄 수 하드 리밋
+#   PROJECT_DOCS_MAX_BYTES (선택, 기본 24576) — 현재 문서 스냅샷 상한
+#   OPEN_ITEMS_MAX    (선택, 기본 240) — 누적 TODO/Backlog ledger 항목 상한
 #   TARGET_DIR        (선택, 기본 "target-repo")  — clone 경로
 #   OUTPUT_PATH       (선택, 기본 "/tmp/final-prompt.md")
 #   CLONE_FACTS_PATH  (선택, 기본 OUTPUT_PATH 와 같은 디렉토리 + ".clone-facts.json")
@@ -38,6 +40,8 @@ TO_SHA="${3:?to_sha required}"
 : "${GH_TOKEN:?GH_TOKEN env required}"
 MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-102400}"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-3000}"
+PROJECT_DOCS_MAX_BYTES="${PROJECT_DOCS_MAX_BYTES:-24576}"
+OPEN_ITEMS_MAX="${OPEN_ITEMS_MAX:-240}"
 TARGET_DIR="${TARGET_DIR:-target-repo}"
 OUTPUT_PATH="${OUTPUT_PATH:-/tmp/final-prompt.md}"
 CLONE_FACTS_PATH="${CLONE_FACTS_PATH:-${OUTPUT_PATH%.md}.clone-facts.json}"
@@ -243,7 +247,19 @@ PY
 ... [diff sampled: ${INCLUDED} files included, ${SKIPPED} skipped; see git diff --stat for full picture] ..."
 fi
 
-# ---- 이전 리포트 정보 (날짜 + backlog) -----------------------------------
+# ---- 현재 문서 스냅샷 -----------------------------------------------------
+# diff 에 없던 기존 문서도 doc_scores 에 반영되도록 현재 repo 의 문서 후보를
+# bounded context 로 함께 전달한다.
+PROJECT_DOCS_SNAPSHOT="$(
+  python3 "$SCRIPT_DIR/build-review-context.py" docs-snapshot "$TARGET_DIR" \
+    --max-bytes "$PROJECT_DOCS_MAX_BYTES" 2>/dev/null || true
+)"
+if [[ -z "$PROJECT_DOCS_SNAPSHOT" ]]; then
+  PROJECT_DOCS_SNAPSHOT="(현재 repo에서 문서 후보 파일을 찾지 못했거나 스냅샷 생성 실패)"
+fi
+echo "[info] project docs snapshot ($(printf '%s' "$PROJECT_DOCS_SNAPSHOT" | wc -c) bytes)" >&2
+
+# ---- 이전 리포트 정보 (날짜 + todo/backlog) ------------------------------
 
 if [[ -f "$META_FILE" ]]; then
   LAST_REPORT_DATE="$(jq -r '.last_report_at // "없음"' "$META_FILE")"
@@ -253,50 +269,42 @@ else
   LAST_REPORT_FILE=""
 fi
 
-# 이전 리포트 frontmatter 의 backlogs 를 bullet 목록으로 추출. 없으면 안내 문구.
+# 이전 리포트 frontmatter 의 todos/backlogs 를 bullet 목록으로 추출. 없으면 안내 문구.
 # PyYAML 이 없으면 전체 스크립트가 상위에서 실패해야 하니 여기선 fallback 문구만.
+PREVIOUS_TODOS="(첫 리포트이거나 이전 리포트에 todo 기록이 없음)"
 PREVIOUS_BACKLOG="(첫 리포트이거나 이전 리포트에 backlog 기록이 없음)"
 if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
-  EXTRACTED="$(
-    python3 - "$ROOT_DIR/$LAST_REPORT_FILE" <<'PY'
-import re, sys
-try:
-    import yaml
-except ImportError:
-    sys.exit(0)
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        content = f.read()
-except OSError:
-    sys.exit(0)
-m = re.match(r"^\s*---\n(.*?)\n---", content, re.DOTALL)
-if not m:
-    sys.exit(0)
-try:
-    fm = yaml.safe_load(m.group(1)) or {}
-except yaml.YAMLError:
-    sys.exit(0)
-items = fm.get("backlogs") or []
-for item in items:
-    # 옛 형식 (string) / 신규 형식 ({title, files?}) 모두 처리.
-    if isinstance(item, str):
-        print(f"- {item}")
-    elif isinstance(item, dict):
-        title = item.get("title")
-        if not isinstance(title, str):
-            continue
-        files = item.get("files") or []
-        if isinstance(files, list) and files:
-            joined = ", ".join(str(f) for f in files if isinstance(f, str))
-            print(f"- {title}  [files: {joined}]")
-        else:
-            print(f"- {title}")
-PY
+  TODO_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" previous-items \
+      "$ROOT_DIR/$LAST_REPORT_FILE" todos 2>/dev/null || true
   )"
-  if [[ -n "$EXTRACTED" ]]; then
-    PREVIOUS_BACKLOG="$EXTRACTED"
+  BACKLOG_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" previous-items \
+      "$ROOT_DIR/$LAST_REPORT_FILE" backlogs 2>/dev/null || true
+  )"
+  if [[ -n "$TODO_EXTRACTED" ]]; then
+    PREVIOUS_TODOS="$TODO_EXTRACTED"
+  fi
+  if [[ -n "$BACKLOG_EXTRACTED" ]]; then
+    PREVIOUS_BACKLOG="$BACKLOG_EXTRACTED"
   fi
 fi
+
+# 직전 리포트만 보면 예전에 해결 처리 없이 빠진 TODO/Backlog 를 놓친다.
+# 프로젝트 전체 report history 에서 최신 open item 과 누락 가능 item 을 모아
+# 매 리포트 생성 시 전수 재판정 대상으로 전달한다.
+OPEN_ITEMS_LEDGER="(이전 리포트가 없어 누적 open item 없음)"
+REPORTS_DIR="$ROOT_DIR/reports/$REPO"
+if [[ -d "$REPORTS_DIR" ]]; then
+  LEDGER_EXTRACTED="$(
+    python3 "$SCRIPT_DIR/build-review-context.py" open-items \
+      "$REPORTS_DIR" --max-items "$OPEN_ITEMS_MAX" 2>/dev/null || true
+  )"
+  if [[ -n "$LEDGER_EXTRACTED" ]]; then
+    OPEN_ITEMS_LEDGER="$LEDGER_EXTRACTED"
+  fi
+fi
+echo "[info] open item ledger ($(printf '%s' "$OPEN_ITEMS_LEDGER" | wc -c) bytes)" >&2
 
 # ---- _sample/docs rubric 레퍼런스 ----------------------------------------
 # 문서 완성도 평가 rubric. _sample 은 org 관리자 통제 하의 정적 참조 repo.
@@ -367,8 +375,11 @@ COMMIT_LOG="$COMMIT_LOG" \
 DIFF_STAT="$DIFF_STAT" \
 DIFF_CONTENT="$DIFF_CONTENT" \
 LAST_REPORT_DATE="$LAST_REPORT_DATE" \
+PREVIOUS_TODOS="$PREVIOUS_TODOS" \
 PREVIOUS_BACKLOG="$PREVIOUS_BACKLOG" \
+OPEN_ITEMS_LEDGER="$OPEN_ITEMS_LEDGER" \
 SAMPLE_DOCS_REFERENCE="$SAMPLE_DOCS_REFERENCE" \
+PROJECT_DOCS_SNAPSHOT="$PROJECT_DOCS_SNAPSHOT" \
 python3 - "$TEMPLATE" "$OUTPUT_PATH" <<'PY'
 import os, sys, re
 src, dst = sys.argv[1], sys.argv[2]
@@ -379,12 +390,13 @@ tmpl = re.sub(r"^\s*<!--.*?-->\s*", "", tmpl, count=1, flags=re.DOTALL)
 
 # 외부 입력으로 통제 가능한 필드: 경계 태그를 위조/탈출하는 시도 차단.
 # <student_content> / </student_content> 의 대소문자·공백 변형 모두 치환.
-# PREVIOUS_BACKLOG 은 모델이 생성한 이전 리포트 내용이라 2차 주입 방어,
-# SAMPLE_DOCS_REFERENCE 는 org 관리자 통제지만 혹시 docs 에 예시 태그가 쓰이면
-# 의도치 않게 경계가 깨질 수 있어 함께 sanitize.
+# PREVIOUS_* 는 모델이 생성한 이전 리포트 내용이고 PROJECT_DOCS_SNAPSHOT 은
+# 학생 repo 원문이라 2차 주입 방어 대상이다. SAMPLE_DOCS_REFERENCE 는 org 관리자
+# 통제지만 혹시 docs 에 예시 태그가 쓰이면 의도치 않게 경계가 깨질 수 있어 함께 sanitize.
 STUDENT_CONTROLLED = {
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT",
-    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
+    "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 }
 BOUNDARY_TAG_RE = re.compile(r"<\s*/?\s*student_content\s*>", re.IGNORECASE)
 
@@ -397,7 +409,8 @@ def _scrub(s: str) -> str:
 for key in (
     "PROJECT_NAME", "COMMIT_RANGE", "COMMIT_COUNT",
     "COMMIT_LOG", "DIFF_STAT", "DIFF_CONTENT", "LAST_REPORT_DATE",
-    "PREVIOUS_BACKLOG", "SAMPLE_DOCS_REFERENCE",
+    "PREVIOUS_TODOS", "PREVIOUS_BACKLOG", "OPEN_ITEMS_LEDGER",
+    "SAMPLE_DOCS_REFERENCE", "PROJECT_DOCS_SNAPSHOT",
 ):
     value = _scrub(os.environ.get(key, ""))
     if key in STUDENT_CONTROLLED:
