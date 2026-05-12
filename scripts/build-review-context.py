@@ -82,6 +82,12 @@ DOC_HINT_RE = re.compile(
 )
 
 PRIORITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+LEDGER_TITLE_SIMILARITY_THRESHOLD = 0.82
+TITLE_STOP_WORDS = {
+    "부재", "누락", "미기재", "잔존", "검증", "절차", "근거", "수치",
+    "문서", "작성", "표기", "혼용", "오타", "의심", "해결", "재검증",
+    "기록", "없이", "사라진", "일부", "가능", "미정", "open", "item",
+}
 
 
 def _load_yaml_frontmatter(path: Path) -> dict[str, Any]:
@@ -152,6 +158,82 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip().casefold()
 
 
+def _title_alias_key(title: str) -> str:
+    text = re.sub(r"`([^`]*)`", r"\1", title)
+    text = re.sub(r"\([^)]*\)|（[^）]*）", "", text)
+    text = re.sub(r"\[[^\]]*\]|【[^】]*】", "", text)
+    text = re.sub(r"[\W_]+", "", text, flags=re.UNICODE)
+    return text.casefold()
+
+
+def _title_similarity_text(title: str) -> str:
+    text = re.sub(r"`([^`]*)`", r"\1", title)
+    text = re.sub(r"\([^)]*\)|（[^）]*）", " ", text)
+    text = re.sub(r"\[[^\]]*\]|【[^】]*】", " ", text)
+    chars = [
+        ch.casefold() if ch.isalnum() or ("가" <= ch <= "힣") else " "
+        for ch in text
+    ]
+    return re.sub(r"\s+", " ", "".join(chars)).strip()
+
+
+def _title_tokens(title: str) -> set[str]:
+    return {
+        token
+        for token in _title_similarity_text(title).split()
+        if len(token) >= 2 and token not in TITLE_STOP_WORDS
+    }
+
+
+def _title_similarity(left: str, right: str) -> float:
+    left_alias = _title_alias_key(left)
+    right_alias = _title_alias_key(right)
+    if left_alias and left_alias == right_alias:
+        return 1.0
+
+    left_tokens = _title_tokens(left)
+    right_tokens = _title_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+
+    overlap = len(left_tokens & right_tokens)
+    if overlap < 2:
+        return 0.0
+    union = len(left_tokens | right_tokens)
+    jaccard = overlap / union if union else 0.0
+    containment = max(
+        overlap / max(1, len(left_tokens)),
+        overlap / max(1, len(right_tokens)),
+    )
+    return max(jaccard, containment * 0.82)
+
+
+def _matching_open_keys(records: dict[str, dict[str, Any]], title: str) -> list[str]:
+    key = _normalize_title(title)
+    matches: list[str] = []
+    if key and records.get(key, {}).get("status") == "open":
+        matches.append(key)
+
+    for record_key, record in records.items():
+        if record_key == key or record.get("status") != "open":
+            continue
+        existing_title = str(record.get("title", ""))
+        if (
+            existing_title
+            and _title_similarity(existing_title, title) >= LEDGER_TITLE_SIMILARITY_THRESHOLD
+        ):
+            matches.append(record_key)
+    return matches
+
+
+def _first_matching_open_key(
+    records: dict[str, dict[str, Any]],
+    title: str,
+) -> str | None:
+    matches = _matching_open_keys(records, title)
+    return matches[0] if matches else None
+
+
 def _report_sort_key(path: Path) -> tuple[datetime, str]:
     # reports use filenames like 2026-05-11T14-24-46Z.md.
     slug = path.stem
@@ -208,11 +290,9 @@ def _unresolved_backlog_records(reports_dir: Path) -> list[dict[str, Any]]:
             title = _item_title(item)
             if not title:
                 continue
-            key = _normalize_title(title)
-            record = records.get(key)
-            if record:
-                record["status"] = "resolved"
-                record["resolved_seen"] = rel_report
+            for key in _matching_open_keys(records, title):
+                records[key]["status"] = "resolved"
+                records[key]["resolved_seen"] = rel_report
 
         backlogs = fm.get("backlogs") or []
         if not isinstance(backlogs, list):
@@ -224,6 +304,9 @@ def _unresolved_backlog_records(reports_dir: Path) -> list[dict[str, Any]]:
                 continue
 
             key = _normalize_title(title)
+            matching_key = _first_matching_open_key(records, title)
+            if key not in records and matching_key:
+                key = matching_key
             record = records.get(key)
             if record is None or record.get("status") == "resolved":
                 record = {
@@ -310,11 +393,9 @@ def open_items(args: argparse.Namespace) -> int:
             title = _item_title(item)
             if not title:
                 continue
-            key = _normalize_title(title)
-            record = records.get(key)
-            if record:
-                record["status"] = "resolved"
-                record["resolved_seen"] = rel_report
+            for key in _matching_open_keys(records, title):
+                records[key]["status"] = "resolved"
+                records[key]["resolved_seen"] = rel_report
 
         for field in ("todos", "backlogs"):
             values = fm.get(field) or []
@@ -326,6 +407,9 @@ def open_items(args: argparse.Namespace) -> int:
                     continue
 
                 key = _normalize_title(title)
+                matching_key = _first_matching_open_key(records, title)
+                if key not in records and matching_key:
+                    key = matching_key
                 if is_latest:
                     latest_open_keys.add(key)
 

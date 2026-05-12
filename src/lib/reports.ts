@@ -236,6 +236,98 @@ export function normalizeItems(items: RawItem[] | undefined): NormalizedItem[] {
   return (items ?? []).map(normalizeItem);
 }
 
+const RESOLVED_TITLE_SIMILARITY_THRESHOLD = 0.82;
+const TITLE_STOP_WORDS = new Set([
+  "부재",
+  "누락",
+  "미기재",
+  "잔존",
+  "검증",
+  "절차",
+  "근거",
+  "수치",
+  "문서",
+  "작성",
+  "표기",
+  "혼용",
+  "오타",
+  "의심",
+  "해결",
+  "재검증",
+  "기록",
+  "없이",
+  "사라진",
+  "일부",
+  "가능",
+  "미정",
+  "open",
+  "item",
+]);
+
+function titleAliasKey(title: string): string {
+  return title
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\([^)]*\)|（[^）]*）/g, "")
+    .replace(/\[[^\]]*\]|【[^】]*】/g, "")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "")
+    .toLowerCase();
+}
+
+function titleSimilarityText(title: string): string {
+  return title
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\([^)]*\)|（[^）]*）/g, " ")
+    .replace(/\[[^\]]*\]|【[^】]*】/g, " ")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    titleSimilarityText(title)
+      .split(" ")
+      .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token)),
+  );
+}
+
+function resolvedTitleSimilarity(left: string, right: string): number {
+  const leftAlias = titleAliasKey(left);
+  const rightAlias = titleAliasKey(right);
+  if (leftAlias && leftAlias === rightAlias) return 1;
+
+  const leftTokens = titleTokens(left);
+  const rightTokens = titleTokens(right);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  if (overlap < 2) return 0;
+
+  const union = leftTokens.size + rightTokens.size - overlap;
+  const jaccard = overlap / Math.max(1, union);
+  const containment = Math.max(
+    overlap / Math.max(1, leftTokens.size),
+    overlap / Math.max(1, rightTokens.size),
+  );
+  return Math.max(jaccard, containment * 0.82);
+}
+
+function isResolvedTitleDuplicate(left: string, right: string): boolean {
+  return (
+    left === right ||
+    resolvedTitleSimilarity(left, right) >= RESOLVED_TITLE_SIMILARITY_THRESHOLD
+  );
+}
+
+function earlierDate(left: string, right: string): string {
+  return new Date(left).getTime() <= new Date(right).getTime() ? left : right;
+}
+
+function laterDate(left: string, right: string): string {
+  return new Date(left).getTime() >= new Date(right).getTime() ? left : right;
+}
+
 export interface BacklogItemWithAge extends NormalizedItem {
   firstSeen: string; // ISO date string
   age: number; // # of reports the item appeared in (since firstSeen, inclusive)
@@ -292,11 +384,22 @@ export function resolvedHistory(p: ProjectSummary): ResolvedItem[] {
   for (const r of p.reports) {
     const items = normalizeItems(r.entry.data.resolved_from_backlog);
     for (const item of items) {
-      out.push({
+      const next: ResolvedItem = {
         ...item,
         resolvedDate: reportUpdatedAt(r),
         firstSeen: firstSeenByTitle.get(item.title) ?? reportUpdatedAt(r),
-      });
+      };
+      const duplicate = out.find((existing) =>
+        isResolvedTitleDuplicate(existing.title, next.title),
+      );
+      if (!duplicate) {
+        out.push(next);
+        continue;
+      }
+
+      duplicate.files = [...new Set([...duplicate.files, ...next.files])];
+      duplicate.firstSeen = earlierDate(duplicate.firstSeen, next.firstSeen);
+      duplicate.resolvedDate = laterDate(duplicate.resolvedDate, next.resolvedDate);
     }
   }
   return out;
