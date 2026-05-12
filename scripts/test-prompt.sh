@@ -333,6 +333,17 @@ fi
 # 출력 스키마 + secret 정합성 체크. 로컬 디버깅용이므로 실패해도 출력은
 # 그대로 stdout 으로 내보내고 --strict 는 붙이지 않는다.
 # 동일 validator 가 generate-reports.yml 에서는 --strict --new-report 로 cell 을 실패시킨다.
-python3 "$SCRIPT_DIR/validate-report.py" "$TMP_OUT" --project "$PROJECT_NAME" --new-report || true
+VALIDATE_ARGS=(
+  "$SCRIPT_DIR/validate-report.py" "$TMP_OUT"
+  --project "$PROJECT_NAME"
+  --new-report
+)
+if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
+  VALIDATE_ARGS+=(
+    --previous-report "$ROOT_DIR/$LAST_REPORT_FILE"
+    --enforce-backlog-carryover
+  )
+fi
+python3 "${VALIDATE_ARGS[@]}" || true
 
 cat "$TMP_OUT"

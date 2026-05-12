@@ -142,10 +142,37 @@ def normalize(content: str) -> tuple[str, list[str]]:
     return content, fixes
 
 
+def item_title(item: object) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict) and isinstance(item.get("title"), str):
+        return item["title"].strip()
+    return ""
+
+
+def titles_from_items(items: object) -> set[str]:
+    if not isinstance(items, list):
+        return set()
+    return {title for item in items if (title := item_title(item))}
+
+
+def frontmatter_from_content(content: str) -> dict[str, object]:
+    m = FRONTMATTER_RE.match(content)
+    if not m:
+        return {}
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
+    return fm if isinstance(fm, dict) else {}
+
+
 def validate(
     content: str,
     expected_project: str | None = None,
     new_report: bool = False,
+    previous_frontmatter: dict[str, object] | None = None,
+    enforce_backlog_carryover: bool = False,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -368,20 +395,7 @@ def validate(
     # 다음 프롬프트가 서로 모순된 상태를 물려받는다.
     if new_report:
         def titles_of(field: str) -> set[str]:
-            out: set[str] = set()
-            values = fm.get(field) or []
-            if not isinstance(values, list):
-                return out
-            for item in values:
-                if isinstance(item, str):
-                    title = item.strip()
-                elif isinstance(item, dict) and isinstance(item.get("title"), str):
-                    title = item["title"].strip()
-                else:
-                    title = ""
-                if title:
-                    out.add(title)
-            return out
+            return titles_from_items(fm.get(field) or [])
 
         open_titles = titles_of("todos") | titles_of("backlogs")
         resolved_titles = titles_of("resolved_from_backlog")
@@ -391,6 +405,18 @@ def validate(
                 "resolved_from_backlog 항목이 todos/backlogs 에도 남아있음: "
                 + ", ".join(overlap)
             )
+
+        if enforce_backlog_carryover and previous_frontmatter:
+            previous_backlog_titles = titles_from_items(
+                previous_frontmatter.get("backlogs") or []
+            )
+            accounted_titles = titles_of("backlogs") | resolved_titles
+            missing = sorted(previous_backlog_titles - accounted_titles)
+            if missing:
+                errors.append(
+                    "이전 backlog 항목이 새 리포트에서 해결/이월 중 어느 쪽으로도 "
+                    "회계 처리되지 않음: " + ", ".join(missing)
+                )
 
     # 본문 필수 섹션 헤딩
     for h in REQUIRED_HEADINGS:
@@ -421,6 +447,10 @@ def main() -> int:
                     help="위반 시 exit 1 (기본: exit 0 + 경고만)")
     ap.add_argument("--new-report", action="store_true",
                     help="신규 Codex 산출물 전용 Item/필수 필드 규칙 적용")
+    ap.add_argument("--previous-report", default=None,
+                    help="직전 리포트 경로. backlog carryover 검증에 사용")
+    ap.add_argument("--enforce-backlog-carryover", action="store_true",
+                    help="직전 backlog title 이 새 backlogs 또는 resolved_from_backlog 에 남는지 검증")
     args = ap.parse_args()
 
     try:
@@ -444,7 +474,25 @@ def main() -> int:
         for f in fixes:
             print(f"  - {f}", file=sys.stderr)
 
-    errors = validate(content, args.project, new_report=args.new_report)
+    previous_frontmatter: dict[str, object] | None = None
+    if args.previous_report:
+        try:
+            with open(args.previous_report, "r", encoding="utf-8") as f:
+                previous_frontmatter = frontmatter_from_content(f.read())
+        except OSError as e:
+            print(f"[validate-report] 이전 리포트 읽기 실패: {e}", file=sys.stderr)
+            return 2
+        if args.enforce_backlog_carryover and not previous_frontmatter:
+            print("[validate-report] 이전 리포트 frontmatter 파싱 실패", file=sys.stderr)
+            return 2
+
+    errors = validate(
+        content,
+        args.project,
+        new_report=args.new_report,
+        previous_frontmatter=previous_frontmatter,
+        enforce_backlog_carryover=args.enforce_backlog_carryover,
+    )
     if errors:
         print("[validate-report] SCHEMA ISSUES:", file=sys.stderr)
         for e in errors:
