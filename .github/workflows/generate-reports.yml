@@ -401,7 +401,13 @@ jobs:
               --new-report
             )
             META="reports/${REPO}/.meta.json"
-            if [[ -f "$META" ]]; then
+            REPORTS_DIR="reports/${REPO}"
+            if [[ -d "$REPORTS_DIR" ]]; then
+              VALIDATE_ARGS+=(
+                --reports-dir "$REPORTS_DIR"
+                --enforce-backlog-ledger
+              )
+            elif [[ -f "$META" ]]; then
               PREVIOUS_REPORT="$(jq -r '.last_report_file // ""' "$META")"
               if [[ -n "$PREVIOUS_REPORT" && -f "$PREVIOUS_REPORT" ]]; then
                 VALIDATE_ARGS+=(

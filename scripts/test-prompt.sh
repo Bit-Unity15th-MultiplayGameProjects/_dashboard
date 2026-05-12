@@ -344,6 +344,12 @@ if [[ -n "$LAST_REPORT_FILE" && -f "$ROOT_DIR/$LAST_REPORT_FILE" ]]; then
     --enforce-backlog-carryover
   )
 fi
+if [[ -d "$REPORTS_DIR" ]]; then
+  VALIDATE_ARGS+=(
+    --reports-dir "$REPORTS_DIR"
+    --enforce-backlog-ledger
+  )
+fi
 python3 "${VALIDATE_ARGS[@]}" || true
 
 cat "$TMP_OUT"

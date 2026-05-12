@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from pathlib import Path
 
 try:
     import yaml
@@ -167,12 +168,57 @@ def frontmatter_from_content(content: str) -> dict[str, object]:
     return fm if isinstance(fm, dict) else {}
 
 
+def frontmatter_from_file(path: Path) -> dict[str, object]:
+    try:
+        return frontmatter_from_content(path.read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+
+
+def unresolved_backlog_titles_from_reports(reports_dir: Path) -> set[str]:
+    """Return backlog titles not followed by an exact resolved entry.
+
+    This deliberately uses title equality as the accounting key because the UI
+    and prompt ledger cannot infer that a renamed backlog was intentionally
+    closed. If a stale title is obsolete, the next report must close that exact
+    title in resolved_from_backlog and introduce a new narrowed backlog.
+    """
+
+    records: dict[str, dict[str, str]] = {}
+    for report in sorted(reports_dir.glob("*.md"), key=lambda p: p.name):
+        fm = frontmatter_from_file(report)
+
+        for item in fm.get("resolved_from_backlog") or []:
+            title = item_title(item)
+            key = re.sub(r"\s+", " ", title).strip().casefold()
+            if key and key in records:
+                records[key]["status"] = "resolved"
+
+        for item in fm.get("backlogs") or []:
+            title = item_title(item)
+            if not title:
+                continue
+            key = re.sub(r"\s+", " ", title).strip().casefold()
+            if key not in records or records[key].get("status") == "resolved":
+                records[key] = {"title": title, "status": "open"}
+            else:
+                records[key]["title"] = title
+                records[key]["status"] = "open"
+
+    return {
+        record["title"]
+        for record in records.values()
+        if record.get("status") == "open"
+    }
+
+
 def validate(
     content: str,
     expected_project: str | None = None,
     new_report: bool = False,
     previous_frontmatter: dict[str, object] | None = None,
     enforce_backlog_carryover: bool = False,
+    ledger_backlog_titles: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -418,6 +464,15 @@ def validate(
                     "회계 처리되지 않음: " + ", ".join(missing)
                 )
 
+        if ledger_backlog_titles:
+            accounted_titles = titles_of("backlogs") | resolved_titles
+            missing = sorted(ledger_backlog_titles - accounted_titles)
+            if missing:
+                errors.append(
+                    "누적 unresolved backlog 항목이 새 리포트에서 해결/이월 중 어느 "
+                    "쪽으로도 회계 처리되지 않음: " + ", ".join(missing)
+                )
+
     # 본문 필수 섹션 헤딩
     for h in REQUIRED_HEADINGS:
         if h not in body:
@@ -451,6 +506,10 @@ def main() -> int:
                     help="직전 리포트 경로. backlog carryover 검증에 사용")
     ap.add_argument("--enforce-backlog-carryover", action="store_true",
                     help="직전 backlog title 이 새 backlogs 또는 resolved_from_backlog 에 남는지 검증")
+    ap.add_argument("--reports-dir", default=None,
+                    help="프로젝트 reports 디렉토리. 누적 backlog ledger 검증에 사용")
+    ap.add_argument("--enforce-backlog-ledger", action="store_true",
+                    help="히스토리상 unresolved backlog title 이 새 backlogs 또는 resolved_from_backlog 에 남는지 검증")
     args = ap.parse_args()
 
     try:
@@ -486,12 +545,24 @@ def main() -> int:
             print("[validate-report] 이전 리포트 frontmatter 파싱 실패", file=sys.stderr)
             return 2
 
+    ledger_backlog_titles: set[str] | None = None
+    if args.enforce_backlog_ledger:
+        if not args.reports_dir:
+            print("[validate-report] --enforce-backlog-ledger requires --reports-dir", file=sys.stderr)
+            return 2
+        reports_dir = Path(args.reports_dir)
+        if not reports_dir.is_dir():
+            print(f"[validate-report] reports 디렉토리 없음: {reports_dir}", file=sys.stderr)
+            return 2
+        ledger_backlog_titles = unresolved_backlog_titles_from_reports(reports_dir)
+
     errors = validate(
         content,
         args.project,
         new_report=args.new_report,
         previous_frontmatter=previous_frontmatter,
         enforce_backlog_carryover=args.enforce_backlog_carryover,
+        ledger_backlog_titles=ledger_backlog_titles,
     )
     if errors:
         print("[validate-report] SCHEMA ISSUES:", file=sys.stderr)
